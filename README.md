@@ -46,7 +46,7 @@ PORT=3004 TCP_PORT=4110 npm start
 npm run verify
 ```
 
-검증 스크립트는 다음 핵심 이벤트가 모두 발생하는지 확인한다.
+검증 스크립트는 `start/next` API 응답에 담긴 이벤트를 모아 다음 핵심 단계가 모두 발생하는지 확인한다.
 
 - `BIND`
 - `LISTEN + ACCEPT WAIT`

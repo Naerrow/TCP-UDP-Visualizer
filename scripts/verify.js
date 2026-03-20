@@ -33,40 +33,6 @@ function request(path) {
   });
 }
 
-function watchEvents() {
-  return new Promise((resolve, reject) => {
-    const events = [];
-    const req = http.get(`http://${HOST}:${WEB_PORT}/events`, (res) => {
-      res.setEncoding("utf8");
-      let buffer = "";
-
-      res.on("data", (chunk) => {
-        buffer += chunk;
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop();
-
-        for (const part of parts) {
-          const line = part
-            .split("\n")
-            .find((entry) => entry.startsWith("data: "));
-          if (!line) continue;
-          const event = JSON.parse(line.slice(6));
-          events.push(event);
-        }
-      });
-
-      res.on("error", reject);
-
-      resolve({
-        events,
-        close: () => req.destroy(),
-      });
-    });
-
-    req.on("error", reject);
-  });
-}
-
 function hasRequiredEvent(events, requirement) {
   return events.some((event) => {
     const value = event.label || event.title || "";
@@ -84,31 +50,28 @@ function hasRequiredEvent(events, requirement) {
 }
 
 async function verifyProtocol(protocol, steps, completionTitle, requiredLabels) {
-  const stream = await watchEvents();
+  const events = [];
 
-  try {
-    await request(`/demo/${protocol}/start`);
-    for (let i = 0; i < steps; i += 1) {
-      await request(`/demo/${protocol}/next`);
+  const started = await request(`/demo/${protocol}/start`);
+  events.push(...(started.events || []));
+
+  for (let i = 0; i < steps; i += 1) {
+    const result = await request(`/demo/${protocol}/next`);
+    events.push(...(result.events || []));
+  }
+
+  const protocolEvents = events.filter(
+    (event) => event.protocol === protocol.toUpperCase(),
+  );
+
+  if (!hasRequiredEvent(protocolEvents, completionTitle)) {
+    throw new Error(`${protocol} did not complete`);
+  }
+
+  for (const requirement of requiredLabels) {
+    if (!hasRequiredEvent(protocolEvents, requirement)) {
+      throw new Error(`${protocol} missing event: ${JSON.stringify(requirement)}`);
     }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    const protocolEvents = stream.events.filter(
-      (event) => event.protocol === protocol.toUpperCase(),
-    );
-
-    if (!hasRequiredEvent(protocolEvents, completionTitle)) {
-      throw new Error(`${protocol} did not complete`);
-    }
-
-    for (const requirement of requiredLabels) {
-      if (!hasRequiredEvent(protocolEvents, requirement)) {
-        throw new Error(`${protocol} missing event: ${JSON.stringify(requirement)}`);
-      }
-    }
-  } finally {
-    stream.close();
   }
 }
 

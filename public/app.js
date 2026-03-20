@@ -112,6 +112,12 @@ async function startDemo() {
     if (!response.ok) {
       throw new Error("Failed to start TCP demo");
     }
+    const data = await response.json();
+    for (const event of data.events || []) {
+      addTimelineItem(event);
+      updateState(event);
+      animatePacket(event);
+    }
     setTcpRunning(true);
   } catch (error) {
     addTimelineItem({
@@ -140,6 +146,11 @@ async function nextStep() {
       throw new Error("Failed to advance TCP demo");
     }
     const data = await response.json();
+    for (const event of data.events || []) {
+      addTimelineItem(event);
+      updateState(event);
+      animatePacket(event);
+    }
     if (data.completed) {
       setTcpRunning(false);
     } else {
@@ -171,27 +182,3 @@ clearLogButton.addEventListener("click", () => {
   tcpState.textContent = "Idle";
   setTcpRunning(false);
 });
-
-const eventSource = new EventSource("/events");
-eventSource.onmessage = (message) => {
-  const event = JSON.parse(message.data);
-  addTimelineItem(event);
-  if (event.protocol === "TCP") {
-    updateState(event);
-  }
-  animatePacket(event);
-
-  if (event.protocol === "TCP" && event.controls) {
-    setTcpRunning(Boolean(event.controls.canAdvance) && !event.controls.completed);
-  }
-};
-
-eventSource.onerror = () => {
-  addTimelineItem({
-    protocol: "SYSTEM",
-    type: "error",
-    at: new Date().toISOString(),
-    title: "Event stream disconnected",
-    detail: "Refresh the page if live updates stop arriving.",
-  });
-};

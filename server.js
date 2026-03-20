@@ -9,20 +9,7 @@ const WEB_PORT = Number(process.env.PORT) || 3000;
 const TCP_PORT = Number(process.env.TCP_PORT) || 4100;
 
 const publicDir = path.join(__dirname, "public");
-const clients = new Set();
 let tcpSession = null;
-
-function sendEvent(event) {
-  const payload = `data: ${JSON.stringify({
-    ...event,
-    id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-    at: new Date().toISOString(),
-  })}\n\n`;
-
-  for (const client of clients) {
-    client.write(payload);
-  }
-}
 
 function respondJson(res, status, body) {
   res.writeHead(status, {
@@ -92,6 +79,23 @@ class TcpSession {
     this.resolveClientEnd = null;
     this.pendingServerClose = null;
     this.resolveServerClose = null;
+    this.stepEvents = [];
+  }
+
+  emit(event) {
+    const enriched = {
+      ...event,
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      at: new Date().toISOString(),
+    };
+    this.stepEvents.push(enriched);
+    return enriched;
+  }
+
+  flushEvents() {
+    const events = this.stepEvents;
+    this.stepEvents = [];
+    return events;
   }
 
   async start() {
@@ -147,7 +151,7 @@ class TcpSession {
       this.resolveDataReady = resolve;
     });
 
-    sendEvent({
+    this.emit({
       protocol: this.protocol,
       session: this.session,
       type: "state",
@@ -160,7 +164,7 @@ class TcpSession {
       },
     });
 
-    sendEvent({
+    this.emit({
       protocol: this.protocol,
       session: this.session,
       type: "session",
@@ -173,7 +177,7 @@ class TcpSession {
       },
     });
 
-    sendEvent({
+    this.emit({
       protocol: this.protocol,
       session: this.session,
       type: "state",
@@ -206,7 +210,7 @@ class TcpSession {
           this.clientSocket.once("data", (buffer) => resolve(buffer.toString("utf8")));
         });
 
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "syscall",
@@ -221,7 +225,7 @@ class TcpSession {
 
       case 1:
         this.stepIndex += 1;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "handshake",
@@ -238,7 +242,7 @@ class TcpSession {
 
       case 2:
         this.stepIndex += 1;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "handshake",
@@ -255,7 +259,7 @@ class TcpSession {
 
       case 3:
         this.stepIndex += 1;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "handshake",
@@ -273,7 +277,7 @@ class TcpSession {
       case 4:
         this.stepIndex += 1;
         await this.pendingConnect;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "syscall",
@@ -289,7 +293,7 @@ class TcpSession {
       case 5:
         this.stepIndex += 1;
         await this.pendingAccepted;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "accept",
@@ -305,7 +309,7 @@ class TcpSession {
 
       case 6:
         this.stepIndex += 1;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "state",
@@ -334,7 +338,7 @@ class TcpSession {
         this.clientSocket.write(this.clientWrites[0]);
         this.clientSocket.write(this.clientWrites[1]);
         await wait(80);
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "state",
@@ -369,7 +373,7 @@ class TcpSession {
           )
           .join(" | ");
 
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "state",
@@ -388,7 +392,7 @@ class TcpSession {
         const responseMessage = `APP RESPONSE: received ${this.receivedChunks.length} chunk(s), ${this.receivedChunks.reduce((sum, chunk) => sum + chunk.bytes, 0)}B`;
         this.serverSocket.write(responseMessage);
         const response = await this.pendingResponse;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "response",
@@ -407,7 +411,7 @@ class TcpSession {
       case 10:
         this.stepIndex += 1;
         this.clientSocket.end();
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "close",
@@ -425,7 +429,7 @@ class TcpSession {
       case 11:
         this.stepIndex += 1;
         await this.pendingClientEnd;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "close",
@@ -445,7 +449,7 @@ class TcpSession {
         if (this.serverSocket && !this.serverSocket.destroyed) {
           this.serverSocket.end();
         }
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "close",
@@ -463,7 +467,7 @@ class TcpSession {
       case 13:
         this.stepIndex += 1;
         await this.pendingServerClose;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "close",
@@ -480,7 +484,7 @@ class TcpSession {
 
       case 14:
         this.stepIndex += 1;
-        sendEvent({
+        this.emit({
           protocol: this.protocol,
           session: this.session,
           type: "session",
@@ -526,7 +530,13 @@ async function handleDemoStart(req, res) {
     await cleanupSession();
     tcpSession = new TcpSession();
     await tcpSession.start();
-    respondJson(res, 202, { ok: true, protocol: "tcp", session: tcpSession.session });
+    respondJson(res, 202, {
+      ok: true,
+      protocol: "tcp",
+      session: tcpSession.session,
+      completed: false,
+      events: tcpSession.flushEvents(),
+    });
   } catch (error) {
     respondJson(res, 500, { ok: false, error: error.message });
   }
@@ -539,15 +549,22 @@ async function handleDemoNext(req, res) {
       return;
     }
 
-    const result = await tcpSession.next();
+    const session = tcpSession;
+    const result = await session.next();
+    const events = session.flushEvents();
     if (result.completed) {
       tcpSession = null;
     }
 
-    respondJson(res, 202, { ok: true, protocol: "tcp", completed: result.completed });
+    respondJson(res, 202, {
+      ok: true,
+      protocol: "tcp",
+      completed: result.completed,
+      events,
+    });
   } catch (error) {
     await cleanupSession();
-    sendEvent({
+    const event = {
       protocol: "TCP",
       type: "error",
       title: "TCP demo failed",
@@ -556,8 +573,10 @@ async function handleDemoNext(req, res) {
         canAdvance: false,
         completed: true,
       },
-    });
-    respondJson(res, 500, { ok: false, error: error.message });
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      at: new Date().toISOString(),
+    };
+    respondJson(res, 500, { ok: false, error: error.message, events: [event] });
   }
 }
 
@@ -569,22 +588,6 @@ const server = http.createServer((req, res) => {
   }
 
   const url = new URL(req.url, `http://${req.headers.host}`);
-
-  if (req.method === "GET" && url.pathname === "/events") {
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    });
-
-    res.write("retry: 1000\n\n");
-    clients.add(res);
-
-    req.on("close", () => {
-      clients.delete(res);
-    });
-    return;
-  }
 
   if (req.method === "POST" && url.pathname === "/demo/tcp/start") {
     handleDemoStart(req, res);
