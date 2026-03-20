@@ -326,13 +326,8 @@ class TcpSession {
       case 7:
         this.stepIndex += 1;
         this.clientWrites = [
-          `frame=1 sentAt=${new Date().toLocaleTimeString("ko-KR", { hour12: false })}`,
-          JSON.stringify({
-            frame: 2,
-            kind: "demo",
-            sentAt: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
-            note: "TCP is a byte stream",
-          }),
+          "MSG1",
+          "MSG2",
         ];
 
         this.clientSocket.write(this.clientWrites[0]);
@@ -341,13 +336,40 @@ class TcpSession {
         this.emit({
           protocol: this.protocol,
           session: this.session,
-          type: "state",
+          type: "data",
           from: "client",
           to: "server",
-          label: `write() x2 / ${this.clientWrites.length} records`,
-          bytes: this.clientWrites.reduce((total, entry) => total + Buffer.byteLength(entry), 0),
-          message: this.clientWrites.join(" || "),
-          detail: "클라이언트 애플리케이션이 서로 다른 payload를 두 번 write() 한다. TCP는 메시지가 아니라 바이트 스트림이므로, 서버 read 결과는 이 write 경계를 그대로 보장하지 않는다.",
+          label: `write #1 / ${Buffer.byteLength(this.clientWrites[0])}B`,
+          bytes: Buffer.byteLength(this.clientWrites[0]),
+          message: this.clientWrites[0],
+          detail: `첫 번째 write() payload: ${this.clientWrites[0]}`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "data",
+          from: "client",
+          to: "server",
+          label: `write #2 / ${Buffer.byteLength(this.clientWrites[1])}B`,
+          bytes: Buffer.byteLength(this.clientWrites[1]),
+          message: this.clientWrites[1],
+          detail: `두 번째 write() payload: ${this.clientWrites[1]}`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "state",
+          side: "both",
+          label: `APP WRITES x2 / ${this.clientWrites.length} records`,
+          detail: "클라이언트 애플리케이션은 write()를 두 번 호출했다. 다음 단계에서 서버가 이 바이트들을 몇 번의 read 이벤트로 관찰했는지 확인할 수 있다.",
           controls: {
             canAdvance: true,
             completed: false,
@@ -369,9 +391,25 @@ class TcpSession {
         const chunkSummary = this.receivedChunks
           .map(
             (chunk, index) =>
-              `chunk${index + 1}=${chunk.bytes}B "${chunk.message}"`,
+              `read#${index + 1}=${chunk.message}`,
           )
           .join(" | ");
+
+        this.receivedChunks.forEach((chunk, index) => {
+          this.emit({
+            protocol: this.protocol,
+            session: this.session,
+            type: "read",
+            side: "server",
+            label: `read #${index + 1} / ${chunk.bytes}B`,
+            message: chunk.message,
+            detail: `서버가 읽은 데이터 ${index + 1}: ${chunk.message}`,
+            controls: {
+              canAdvance: true,
+              completed: false,
+            },
+          });
+        });
 
         this.emit({
           protocol: this.protocol,
@@ -379,7 +417,7 @@ class TcpSession {
           type: "state",
           side: "server",
           label: `READ BUFFER / ${this.receivedChunks.length} chunk(s), ${totalBytes}B`,
-          detail: `Server application observed: ${chunkSummary}. 여러 write()가 하나의 read로 합쳐지거나, 반대로 쪼개져 읽힐 수 있다는 점이 TCP의 핵심이다.`,
+          detail: `서버가 읽은 결과: ${chunkSummary}. 즉, write() 2번이 read() 1번으로 합쳐질 수 있다.`,
           controls: {
             canAdvance: true,
             completed: false,
