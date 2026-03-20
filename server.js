@@ -214,8 +214,6 @@ class TcpSession {
           protocol: this.protocol,
           session: this.session,
           type: "syscall",
-          from: "client",
-          to: "server",
           label: "connect()",
           detail: "Client application calls connect(). 이 순간부터 커널 TCP 스택이 SYN, SYN-ACK, ACK를 교환해 연결을 성립시키려 한다.",
           controls: {
@@ -227,27 +225,14 @@ class TcpSession {
 
       case 1:
         this.stepIndex += 1;
-        await Promise.all([this.pendingConnect, this.pendingAccepted]);
         sendEvent({
           protocol: this.protocol,
           session: this.session,
           type: "handshake",
           from: "client",
           to: "server",
-          label: "SYN -> SYN-ACK -> ACK COMPLETE",
-          detail: "실제 TCP 제어 세그먼트 3개가 커널 내부에서 오갔다. 이제 client의 connect()가 반환되고 server의 accept()도 새 연결 소켓을 반환한다.",
-          controls: {
-            canAdvance: true,
-            completed: false,
-          },
-        });
-        sendEvent({
-          protocol: this.protocol,
-          session: this.session,
-          type: "accept",
-          side: "server",
-          label: "ACCEPT RETURNED",
-          detail: "Server application now owns a new connected socket. 기존 listening socket은 계속 다음 연결을 기다릴 수 있다.",
+          label: "SYN",
+          detail: "클라이언트 커널이 연결 요청 세그먼트를 서버로 보낸다.",
           controls: {
             canAdvance: true,
             completed: false,
@@ -260,10 +245,11 @@ class TcpSession {
         sendEvent({
           protocol: this.protocol,
           session: this.session,
-          type: "state",
-          side: "both",
-          label: "ESTABLISHED",
-          detail: "연결이 완전히 성립되었다. 이제부터 양쪽 애플리케이션은 순서가 보장되는 바이트 스트림을 송수신할 수 있다.",
+          type: "handshake",
+          from: "server",
+          to: "client",
+          label: "SYN-ACK",
+          detail: "서버 커널이 연결 요청을 받고, 수락 의사와 함께 응답 세그먼트를 돌려보낸다.",
           controls: {
             canAdvance: true,
             completed: false,
@@ -273,12 +259,78 @@ class TcpSession {
 
       case 3:
         this.stepIndex += 1;
+        sendEvent({
+          protocol: this.protocol,
+          session: this.session,
+          type: "handshake",
+          from: "client",
+          to: "server",
+          label: "ACK",
+          detail: "클라이언트 커널이 마지막 확인 세그먼트를 보내며 3-way handshake를 마무리한다.",
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+
+      case 4:
+        this.stepIndex += 1;
+        await this.pendingConnect;
+        sendEvent({
+          protocol: this.protocol,
+          session: this.session,
+          type: "syscall",
+          label: "connect() returned",
+          detail: "클라이언트 애플리케이션 관점에서 connect() 호출이 성공으로 끝났다.",
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+
+      case 5:
+        this.stepIndex += 1;
+        await this.pendingAccepted;
+        sendEvent({
+          protocol: this.protocol,
+          session: this.session,
+          type: "accept",
+          side: "server",
+          label: "accept() returned",
+          detail: "서버 애플리케이션은 accept()로 새 연결 소켓을 돌려받았다. listening socket은 계속 살아 있다.",
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+
+      case 6:
+        this.stepIndex += 1;
+        sendEvent({
+          protocol: this.protocol,
+          session: this.session,
+          type: "state",
+          side: "both",
+          label: "ESTABLISHED",
+          detail: "이제 양쪽 애플리케이션은 연결된 TCP 소켓으로 데이터를 주고받을 수 있다.",
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+
+      case 7:
+        this.stepIndex += 1;
         this.clientSocket.write(this.payload);
         await wait(80);
         sendEvent({
           protocol: this.protocol,
           session: this.session,
-          type: "data",
+          type: "state",
           from: "client",
           to: "server",
           label: `SEQ ${Buffer.byteLength(this.payload)}B`,
@@ -292,7 +344,7 @@ class TcpSession {
         });
         return { completed: false };
 
-      case 4:
+      case 8:
         this.stepIndex += 1;
         if (!this.pendingData) {
           await this.pendingDataReady;
@@ -311,7 +363,7 @@ class TcpSession {
         });
         return { completed: false };
 
-      case 5: {
+      case 9: {
         this.stepIndex += 1;
         const response = await this.pendingResponse;
         sendEvent({
@@ -330,7 +382,7 @@ class TcpSession {
         return { completed: false };
       }
 
-      case 6:
+      case 10:
         this.stepIndex += 1;
         this.clientSocket.end();
         sendEvent({
@@ -348,7 +400,7 @@ class TcpSession {
         });
         return { completed: false };
 
-      case 7:
+      case 11:
         this.stepIndex += 1;
         await this.pendingClientEnd;
         sendEvent({
@@ -366,7 +418,7 @@ class TcpSession {
         });
         return { completed: false };
 
-      case 8:
+      case 12:
         this.stepIndex += 1;
         if (this.serverSocket && !this.serverSocket.destroyed) {
           this.serverSocket.end();
@@ -386,7 +438,7 @@ class TcpSession {
         });
         return { completed: false };
 
-      case 9:
+      case 13:
         this.stepIndex += 1;
         await this.pendingServerClose;
         sendEvent({
@@ -404,7 +456,7 @@ class TcpSession {
         });
         return { completed: false };
 
-      case 10:
+      case 14:
         this.stepIndex += 1;
         sendEvent({
           protocol: this.protocol,
@@ -412,7 +464,7 @@ class TcpSession {
           type: "session",
           phase: "complete",
           title: "TCP session completed",
-          detail: "bind, listen, accept 대기, connect() 뒤의 3-way handshake, established, stream data, half-close, full close 흐름까지 확인했다.",
+          detail: "connect() 호출부터 SYN, SYN-ACK, ACK, connect() 반환, accept() 반환, ESTABLISHED, 데이터 송수신, 종료까지 확인했다.",
           controls: {
             canAdvance: false,
             completed: true,

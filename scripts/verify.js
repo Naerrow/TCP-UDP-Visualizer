@@ -113,12 +113,15 @@ async function verifyProtocol(protocol, steps, completionTitle, requiredLabels) 
 }
 
 async function main() {
-  await verifyProtocol("tcp", 11, "TCP session completed", [
+  await verifyProtocol("tcp", 15, "TCP session completed", [
     "BIND",
     "LISTEN + ACCEPT WAIT",
     "connect()",
-    "SYN -> SYN-ACK -> ACK COMPLETE",
-    "ACCEPT RETURNED",
+    "SYN",
+    "SYN-ACK",
+    "ACK",
+    "connect() returned",
+    "accept() returned",
     "ESTABLISHED",
     "close() / FIN",
     "FIN RECEIVED / ACK IMPLIED",
