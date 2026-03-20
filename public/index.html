@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TCP Visualizer</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <h1>TCP 연결 수립과 데이터 전송 과정을 단계별로 확인하기</h1>
+        <p class="hero-copy">
+          브라우저에서 데모를 실행하면 Node 서버가 실제 TCP 소켓을 열어
+          통신하고, `bind`, `listen`, `accept`, `connect()`, handshake 완료,
+          데이터 송수신, 종료 흐름이 단계별로 반영된다.
+        </p>
+      </header>
+
+      <section class="control-panel">
+        <button id="clear-log" class="action ghost">Clear Timeline</button>
+      </section>
+
+      <section class="dashboard">
+        <article class="protocol-card tcp-card">
+          <div class="card-head">
+            <h2>TCP</h2>
+            <span class="badge">Reliable Byte Stream</span>
+          </div>
+          <p class="protocol-summary">
+            애플리케이션이 보는 소켓 API 단계와, 그 뒤에서 커널 TCP 스택이
+            수행하는 3-way handshake 및 연결 종료 과정을 함께 설명한다.
+          </p>
+          <div class="card-controls">
+            <button id="start-tcp" class="action tcp">Start TCP</button>
+            <button id="next-tcp" class="action ghost" disabled>
+              Next Step
+            </button>
+          </div>
+          <div class="network-scene" data-protocol="TCP">
+            <div class="node client" data-side="client">Client</div>
+            <div class="lane"></div>
+            <div class="node server" data-side="server">Server</div>
+            <div class="packet-layer"></div>
+          </div>
+          <div class="state-strip" id="tcp-state">Idle</div>
+        </article>
+      </section>
+
+      <section class="insight-grid">
+        <article class="insight-card">
+          <h3>TCP 핵심 포인트</h3>
+          <ul>
+            <li>서버는 `bind -> listen -> accept wait` 상태로 새 연결을 기다린다.</li>
+            <li>클라이언트의 `connect()` 뒤에서 커널이 `SYN -> SYN-ACK -> ACK`를 수행한다.</li>
+            <li>handshake 완료 후 `accept()`가 새 연결 소켓을 반환한다.</li>
+            <li>연결 성립 뒤에는 순서 보장되는 바이트 스트림을 송수신한다.</li>
+            <li>종료는 한 번에 끊기는 것이 아니라 half-close를 거쳐 마무리된다.</li>
+          </ul>
+        </article>
+        <article class="insight-card">
+          <h3>이 데모의 해석 기준</h3>
+          <ul>
+            <li>화면은 Wireshark처럼 패킷을 직접 캡처한 것이 아니라, 앱에서 보이는 단계와 TCP 개념을 연결해 설명한다.</li>
+            <li>`SYN`, `SYN-ACK`, `ACK`는 실제 TCP 제어 세그먼트지만, 일반 애플리케이션 코드에서 직접 `write()`로 보내는 문자열은 아니다.</li>
+            <li>앱이 직접 보는 것은 `connect()`, `accept()`, `read()`, `close()` 같은 소켓 API의 결과다.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="timeline-section">
+        <div class="timeline-head">
+          <h2>Live Timeline</h2>
+          <p>실제 서버 이벤트가 여기에 순서대로 쌓인다.</p>
+        </div>
+        <div id="timeline" class="timeline"></div>
+      </section>
+    </div>
+
+    <template id="timeline-item-template">
+      <article class="timeline-item">
+        <div class="timeline-meta">
+          <span class="protocol-pill"></span>
+          <span class="event-type"></span>
+          <span class="event-time"></span>
+        </div>
+        <h3 class="event-title"></h3>
+        <p class="event-detail"></p>
+      </article>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

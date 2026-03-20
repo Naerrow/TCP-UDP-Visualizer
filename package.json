@@ -1,0 +1,10 @@
+{
+  "name": "tcp-visualizer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visual demo of TCP connection setup and data exchange",
+  "scripts": {
+    "start": "node server.js",
+    "verify": "node scripts/verify.js"
+  }
+}
