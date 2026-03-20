@@ -77,12 +77,12 @@ class TcpSession {
     this.session = `tcp-${Date.now()}`;
     this.stepIndex = 0;
     this.completed = false;
-    this.payload = `TCP says hello at ${new Date().toLocaleTimeString("ko-KR", { hour12: false })}`;
     this.server = null;
     this.serverSocket = null;
     this.clientSocket = null;
     this.pendingConnect = null;
-    this.pendingData = null;
+    this.receivedChunks = [];
+    this.clientWrites = [];
     this.pendingResponse = null;
     this.pendingDataReady = null;
     this.resolveDataReady = null;
@@ -113,18 +113,14 @@ class TcpSession {
       }
 
       socket.on("data", (buffer) => {
-        const text = buffer.toString("utf8");
-        this.pendingData = {
+        this.receivedChunks.push({
           bytes: buffer.length,
-          message: text,
-        };
+          message: buffer.toString("utf8"),
+        });
         if (this.resolveDataReady) {
           this.resolveDataReady();
           this.resolveDataReady = null;
         }
-
-        const responseMessage = `APP RESPONSE:${text.length}B`;
-        socket.write(responseMessage);
       });
 
       socket.on("end", () => {
@@ -325,7 +321,18 @@ class TcpSession {
 
       case 7:
         this.stepIndex += 1;
-        this.clientSocket.write(this.payload);
+        this.clientWrites = [
+          `frame=1 sentAt=${new Date().toLocaleTimeString("ko-KR", { hour12: false })}`,
+          JSON.stringify({
+            frame: 2,
+            kind: "demo",
+            sentAt: new Date().toLocaleTimeString("ko-KR", { hour12: false }),
+            note: "TCP is a byte stream",
+          }),
+        ];
+
+        this.clientSocket.write(this.clientWrites[0]);
+        this.clientSocket.write(this.clientWrites[1]);
         await wait(80);
         sendEvent({
           protocol: this.protocol,
@@ -333,10 +340,10 @@ class TcpSession {
           type: "state",
           from: "client",
           to: "server",
-          label: `SEQ ${Buffer.byteLength(this.payload)}B`,
-          bytes: Buffer.byteLength(this.payload),
-          message: this.payload,
-          detail: "애플리케이션이 보낸 데이터는 TCP에 의해 세그먼트로 나뉘어 전달되지만, 앱 입장에서는 하나의 순서 있는 바이트 스트림처럼 보인다.",
+          label: `write() x2 / ${this.clientWrites.length} records`,
+          bytes: this.clientWrites.reduce((total, entry) => total + Buffer.byteLength(entry), 0),
+          message: this.clientWrites.join(" || "),
+          detail: "클라이언트 애플리케이션이 서로 다른 payload를 두 번 write() 한다. TCP는 메시지가 아니라 바이트 스트림이므로, 서버 read 결과는 이 write 경계를 그대로 보장하지 않는다.",
           controls: {
             canAdvance: true,
             completed: false,
@@ -346,16 +353,29 @@ class TcpSession {
 
       case 8:
         this.stepIndex += 1;
-        if (!this.pendingData) {
+        if (this.receivedChunks.length === 0) {
           await this.pendingDataReady;
         }
+        await wait(120);
+
+        const totalBytes = this.receivedChunks.reduce(
+          (sum, chunk) => sum + chunk.bytes,
+          0,
+        );
+        const chunkSummary = this.receivedChunks
+          .map(
+            (chunk, index) =>
+              `chunk${index + 1}=${chunk.bytes}B "${chunk.message}"`,
+          )
+          .join(" | ");
+
         sendEvent({
           protocol: this.protocol,
           session: this.session,
           type: "state",
           side: "server",
-          label: "DATA ARRIVED",
-          detail: `Server application read from its socket buffer: "${this.pendingData ? this.pendingData.message : this.payload}"`,
+          label: `READ BUFFER / ${this.receivedChunks.length} chunk(s), ${totalBytes}B`,
+          detail: `Server application observed: ${chunkSummary}. 여러 write()가 하나의 read로 합쳐지거나, 반대로 쪼개져 읽힐 수 있다는 점이 TCP의 핵심이다.`,
           controls: {
             canAdvance: true,
             completed: false,
@@ -365,6 +385,8 @@ class TcpSession {
 
       case 9: {
         this.stepIndex += 1;
+        const responseMessage = `APP RESPONSE: received ${this.receivedChunks.length} chunk(s), ${this.receivedChunks.reduce((sum, chunk) => sum + chunk.bytes, 0)}B`;
+        this.serverSocket.write(responseMessage);
         const response = await this.pendingResponse;
         sendEvent({
           protocol: this.protocol,
