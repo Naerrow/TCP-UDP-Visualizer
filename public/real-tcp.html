@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real TCP Lab</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <nav class="page-nav" aria-label="Primary">
+        <a href="/" class="nav-link">Learning Demo</a>
+        <a href="/real-tcp.html" class="nav-link is-current" aria-current="page">Real TCP Lab</a>
+      </nav>
+
+      <header class="hero">
+        <h1>실제 TCP 서버와 클라이언트를 실행하고 통신 기록을 남기기</h1>
+        <p class="hero-copy">
+          이 페이지는 교육용 재현이 아니라 실제 Node TCP 서버와 실제 TCP
+          클라이언트를 실행한다. 브라우저는 제어 UI 역할만 하고, 실제 소켓은
+          서버 프로세스가 열며 모든 송수신 기록은 파일과 라이브 로그에 남는다.
+        </p>
+      </header>
+
+      <section class="dashboard lab-grid">
+        <article class="protocol-card">
+          <div class="card-head">
+            <h2>Lab Server</h2>
+            <span class="badge">net.createServer()</span>
+          </div>
+          <p class="protocol-summary">
+            새 TCP 서버를 실제로 띄우고, 외부 프로그램이나 관리형 클라이언트가
+            접속한 모든 연결을 주소, 포트, 바이트 단위로 기록한다.
+          </p>
+          <div class="control-grid">
+            <label class="field">
+              <span>Bind Host</span>
+              <input id="lab-host" type="text" value="127.0.0.1" />
+            </label>
+            <label class="field">
+              <span>Port</span>
+              <input id="lab-port" type="number" value="4200" min="1" max="65535" />
+            </label>
+          </div>
+          <div class="card-controls">
+            <button id="start-lab-server" class="action tcp">Start Server</button>
+            <button id="stop-lab-server" class="action ghost">Stop Server</button>
+            <a id="download-log" class="action ghost action-link" href="/lab/tcp/logs/download">Download Log</a>
+          </div>
+          <div class="state-strip" id="lab-server-state">Server stopped</div>
+          <div class="meta-grid">
+            <div class="meta-card">
+              <span class="meta-label">Listener</span>
+              <strong id="listener-address">127.0.0.1:4200</strong>
+            </div>
+            <div class="meta-card">
+              <span class="meta-label">Log File</span>
+              <strong id="log-file-path">logs/tcp-lab.ndjson</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="protocol-card">
+          <div class="card-head">
+            <h2>Managed Client</h2>
+            <span class="badge">net.Socket()</span>
+          </div>
+          <p class="protocol-summary">
+            브라우저가 raw TCP를 직접 열 수 없으므로, 이 버튼은 서버 프로세스에
+            실제 TCP 클라이언트를 생성하도록 요청한다. 접속 후에는 어느 소켓에서든
+            데이터를 보내고 종료할 수 있다.
+          </p>
+          <div class="control-grid">
+            <label class="field">
+              <span>Target Host</span>
+              <input id="client-host" type="text" value="127.0.0.1" />
+            </label>
+            <label class="field">
+              <span>Target Port</span>
+              <input id="client-port" type="number" value="4200" min="1" max="65535" />
+            </label>
+            <label class="field field-wide">
+              <span>Client Label</span>
+              <input id="client-label" type="text" value="Managed client" />
+            </label>
+          </div>
+          <div class="card-controls">
+            <button id="connect-managed-client" class="action tcp">Connect Client</button>
+            <button id="refresh-lab" class="action ghost">Refresh State</button>
+          </div>
+          <div class="state-strip" id="managed-client-state">No managed client connected yet.</div>
+        </article>
+      </section>
+
+      <section class="dashboard lab-grid">
+        <article class="protocol-card">
+          <div class="card-head">
+            <h2>Socket Actions</h2>
+            <span class="badge">Write / FIN / Destroy</span>
+          </div>
+          <p class="protocol-summary">
+            현재 열려 있는 실제 TCP 소켓 중 하나를 선택해서 메시지를 보내거나
+            half-close, 강제 종료를 실행할 수 있다.
+          </p>
+          <div class="control-grid">
+            <label class="field field-wide">
+              <span>Socket</span>
+              <select id="socket-select"></select>
+            </label>
+            <label class="field field-wide">
+              <span>Message</span>
+              <textarea id="socket-message" rows="5">hello from the real tcp lab</textarea>
+            </label>
+          </div>
+          <div class="card-controls">
+            <button id="send-socket-message" class="action tcp">Send Message</button>
+            <button id="end-socket" class="action ghost">Half Close</button>
+            <button id="destroy-socket" class="action ghost">Destroy Socket</button>
+          </div>
+        </article>
+
+        <article class="insight-card">
+          <h3>터미널과 툴로 확인</h3>
+          <ul class="plain-list">
+            <li>아래 명령은 이 페이지와 같은 실제 TCP 서버를 직접 확인하는 용도다.</li>
+            <li>브라우저 DevTools에는 제어용 HTTP API와 SSE만 보이고, raw TCP 바이트는 서버 로그와 외부 네트워크 툴에서 확인한다.</li>
+          </ul>
+          <div class="command-stack">
+            <div class="command-card">
+              <span class="command-label">Connect with netcat</span>
+              <pre id="command-netcat" class="command-block"></pre>
+            </div>
+            <div class="command-card">
+              <span class="command-label">See listening socket</span>
+              <pre id="command-lsof" class="command-block"></pre>
+            </div>
+            <div class="command-card">
+              <span class="command-label">Tail persisted log</span>
+              <pre id="command-tail" class="command-block"></pre>
+            </div>
+            <div class="command-card">
+              <span class="command-label">Packet capture tip</span>
+              <pre id="command-tcpdump" class="command-block"></pre>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="timeline-section">
+        <div class="timeline-head">
+          <h2>Socket Inventory</h2>
+          <p>실제 local/remote address, 상태, 누적 바이트 수를 확인한다.</p>
+        </div>
+        <div class="socket-table-wrap">
+          <table class="socket-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Local</th>
+                <th>Remote</th>
+                <th>Bytes In</th>
+                <th>Bytes Out</th>
+              </tr>
+            </thead>
+            <tbody id="socket-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="timeline-section">
+        <div class="timeline-head">
+          <h2>Live Socket Log</h2>
+          <p>실제 TCP 서버/클라이언트에서 관찰된 연결, 송수신, FIN, close, error 기록이다.</p>
+        </div>
+        <div id="lab-log" class="timeline"></div>
+      </section>
+    </div>
+
+    <template id="lab-log-item-template">
+      <article class="timeline-item log-item">
+        <div class="timeline-meta">
+          <span class="protocol-pill tcp">TCP</span>
+          <span class="event-type tcp"></span>
+          <span class="event-time"></span>
+        </div>
+        <h3 class="event-title"></h3>
+        <p class="event-detail"></p>
+        <pre class="log-payload" hidden></pre>
+      </article>
+    </template>
+
+    <script src="/lab.js"></script>
+  </body>
+</html>

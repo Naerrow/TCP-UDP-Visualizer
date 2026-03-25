@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const net = require("net");
 const { URL } = require("url");
+const { createTcpLabManager, TCP_LAB_LOG_FILE } = require("./tcp-lab");
 
 const HOST = "127.0.0.1";
 const WEB_PORT = Number(process.env.PORT) || 3000;
@@ -10,6 +11,7 @@ const TCP_PORT = Number(process.env.TCP_PORT) || 4100;
 
 const publicDir = path.join(__dirname, "public");
 let tcpSession = null;
+const tcpLab = createTcpLabManager();
 
 function respondJson(res, status, body) {
   res.writeHead(status, {
@@ -48,6 +50,59 @@ function serveStatic(req, res) {
     res.writeHead(200, { "Content-Type": typeMap[ext] || "text/plain; charset=utf-8" });
     res.end(data);
   });
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    if (req.method === "GET" || req.method === "HEAD") {
+      resolve({});
+      return;
+    }
+
+    let raw = "";
+
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 1_000_000) {
+        reject(new Error("Request body is too large."));
+        req.destroy();
+      }
+    });
+
+    req.on("end", () => {
+      if (!raw) {
+        resolve({});
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(raw));
+      } catch (error) {
+        reject(new Error("Request body must be valid JSON."));
+      }
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function serveLabLogFile(res) {
+  const stream = fs.createReadStream(TCP_LAB_LOG_FILE);
+  stream.on("error", () => {
+    if (!res.headersSent) {
+      respondJson(res, 500, { ok: false, error: "Failed to read the TCP lab log file." });
+    } else {
+      res.destroy();
+    }
+  });
+
+  res.writeHead(200, {
+    "Content-Type": "application/x-ndjson; charset=utf-8",
+    "Content-Disposition": 'attachment; filename="tcp-lab.ndjson"',
+    "Cache-Control": "no-store",
+  });
+
+  stream.pipe(res);
 }
 
 function wait(ms) {
@@ -618,6 +673,72 @@ async function handleDemoNext(req, res) {
   }
 }
 
+function respondLabState(res, status = 200) {
+  respondJson(res, status, {
+    ok: true,
+    ...tcpLab.getState(),
+  });
+}
+
+async function handleLabServerStart(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await tcpLab.startServer(body);
+    respondLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleLabServerStop(req, res) {
+  try {
+    await tcpLab.stopServer();
+    respondLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 500, { ok: false, error: error.message });
+  }
+}
+
+async function handleLabClientConnect(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await tcpLab.connectManagedClient(body);
+    respondLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleLabSocketSend(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await tcpLab.send(body.socketId, body.text);
+    respondLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleLabSocketEnd(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await tcpLab.end(body.socketId);
+    respondLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleLabSocketDestroy(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await tcpLab.destroy(body.socketId);
+    respondLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (!req.url) {
     res.writeHead(400);
@@ -634,6 +755,51 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/demo/tcp/next") {
     handleDemoNext(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/tcp/state") {
+    respondLabState(res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/tcp/stream") {
+    tcpLab.registerStream(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/tcp/logs/download") {
+    serveLabLogFile(res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/tcp/server/start") {
+    handleLabServerStart(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/tcp/server/stop") {
+    handleLabServerStop(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/tcp/client/connect") {
+    handleLabClientConnect(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/tcp/socket/send") {
+    handleLabSocketSend(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/tcp/socket/end") {
+    handleLabSocketEnd(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/tcp/socket/destroy") {
+    handleLabSocketDestroy(req, res);
     return;
   }
 
