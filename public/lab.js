@@ -30,7 +30,7 @@ const uiState = {
 };
 
 function prettify(value) {
-  return (value || "event").replace(/_/g, " ");
+  return (value || "event").replace(/[_-]/g, " ");
 }
 
 function formatClock(at) {
@@ -73,12 +73,130 @@ function applyButtonLabels() {
 }
 
 function logTitle(event) {
-  const parts = [event.label || event.category, prettify(event.action)];
+  const parts = [displayCategory(event.category), "상세 로그"];
   return parts.filter(Boolean).join(" / ");
+}
+
+function displayCategory(category) {
+  switch (category) {
+    case "server":
+      return "서버";
+    case "client":
+      return "클라이언트";
+    case "socket":
+      return "소켓";
+    default:
+      return prettify(category);
+  }
+}
+
+function displayAction(action) {
+  switch (action) {
+    case "listening":
+      return "리스닝";
+    case "accepted":
+      return "연결 수락";
+    case "connect-request":
+      return "연결 시도";
+    case "connected":
+      return "연결 완료";
+    case "write":
+      return "전송";
+    case "data":
+      return "수신";
+    case "end-request":
+      return "종료 요청";
+    case "end":
+      return "FIN 관찰";
+    case "close":
+      return "닫힘";
+    case "destroy":
+      return "강제 종료";
+    case "stopped":
+      return "리스너 중지";
+    case "error":
+      return "오류";
+    default:
+      return prettify(action);
+  }
+}
+
+function displayLabel(label) {
+  switch (label) {
+    case "Accepted peer":
+    case "수락된 연결":
+    case "서버 소켓":
+      return "서버 소켓";
+    case "Managed client":
+    case "관리형 클라이언트":
+    case "클라이언트":
+      return "클라이언트";
+    default:
+      return label;
+  }
+}
+
+function subjectFor(event) {
+  const parts = [];
+
+  if (event.label) {
+    parts.push(displayLabel(event.label));
+  } else if (event.category === "server") {
+    parts.push("서버");
+  } else if (event.category === "client") {
+    parts.push("클라이언트");
+  } else {
+    parts.push("소켓");
+  }
+
+  if (event.role) {
+    const roleLabel = displayRole(event.role);
+    if (roleLabel && roleLabel !== parts[parts.length - 1]) {
+      parts.push(roleLabel);
+    }
+  }
+
+  return parts.join(" · ");
+}
+
+function summaryFor(event) {
+  switch (event.action) {
+    case "listening":
+      return `${event.host}:${event.port} 에서 리스닝을 시작했다.`;
+    case "accepted":
+      return "서버가 실제 TCP 연결을 수락했다.";
+    case "connect-request":
+      return "클라이언트가 TCP 연결 시도를 시작했다.";
+    case "connected":
+      return "TCP 연결이 성립됐다.";
+    case "write":
+      return `${subjectFor(event)} 가 ${event.bytes}B 를 보냈다.`;
+    case "data":
+      return `${subjectFor(event)} 가 ${event.bytes}B 를 받았다.`;
+    case "end-request":
+      return `${subjectFor(event)} 가 FIN 전송으로 정상 종료를 시작했다.`;
+    case "end":
+      return `${subjectFor(event)} 가 상대 FIN 을 관찰했다.`;
+    case "close":
+      return `${subjectFor(event)} 소켓이 닫혔다.`;
+    case "destroy":
+      return `${subjectFor(event)} 가 소켓을 즉시 종료했다.`;
+    case "stopped":
+      return "TCP 실험용 리스너가 중지됐다.";
+    case "error":
+      return event.message || event.detail || "소켓 오류가 발생했다.";
+    default:
+      return event.detail || `${prettify(event.action)} 이벤트`;
+  }
 }
 
 function logDetail(event) {
   const details = [];
+
+  if (event.socketId) {
+    details.push(`소켓=${event.socketId}`);
+  }
+
   if (event.detail) {
     details.push(event.detail);
   }
@@ -86,7 +204,7 @@ function logDetail(event) {
   const local = formatEndpoint(event.localAddress, event.localPort);
   const remote = formatEndpoint(event.remoteAddress, event.remotePort);
   if (local !== "-" || remote !== "-") {
-    details.push(`local=${local} remote=${remote}`);
+    details.push(`로컬=${local} 원격=${remote}`);
   }
 
   return details.join(" ");
@@ -94,15 +212,18 @@ function logDetail(event) {
 
 function renderLogItem(event) {
   const node = logTemplate.content.firstElementChild.cloneNode(true);
-  node.querySelector(".event-type").textContent = `${prettify(event.category)} / ${prettify(event.action)}`;
+  node.dataset.action = event.action || "generic";
+  node.querySelector(".event-type").textContent = `${displayCategory(event.category)} / ${displayAction(event.action)}`;
   node.querySelector(".event-time").textContent = formatClock(event.at);
+  node.querySelector(".log-subject").textContent = subjectFor(event);
+  node.querySelector(".log-summary").textContent = summaryFor(event);
   node.querySelector(".event-title").textContent = logTitle(event);
   node.querySelector(".event-detail").textContent = logDetail(event);
 
   const payload = node.querySelector(".log-payload");
   if (typeof event.bytes === "number") {
     payload.hidden = false;
-    payload.textContent = `bytes: ${event.bytes}\nutf8: ${event.utf8}\nhex: ${event.hex}`;
+    payload.textContent = `바이트 수: ${event.bytes}\nUTF-8: ${event.utf8}\n16진수: ${event.hex}`;
   }
 
   return node;
@@ -123,7 +244,7 @@ function renderSocketTable(sockets) {
 
   if (sockets.length === 0) {
     const row = document.createElement("tr");
-    row.innerHTML = '<td colspan="7" class="empty-cell">No sockets yet.</td>';
+    row.innerHTML = '<td colspan="7" class="empty-cell">아직 생성된 소켓이 없다.</td>';
     socketTableBody.append(row);
     return;
   }
@@ -132,8 +253,8 @@ function renderSocketTable(sockets) {
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>${socket.id}</td>
-      <td>${socket.role}</td>
-      <td>${socket.status}</td>
+      <td>${displayRole(socket.role)}</td>
+      <td>${displayStatus(socket.status)}</td>
       <td>${formatEndpoint(socket.localAddress, socket.localPort)}</td>
       <td>${formatEndpoint(socket.remoteAddress, socket.remotePort)}</td>
       <td>${socket.bytesRead}</td>
@@ -150,7 +271,7 @@ function renderSocketOptions(snapshot) {
 
   if (sockets.length === 0) {
     const option = document.createElement("option");
-    option.textContent = "No writable sockets";
+    option.textContent = "전송 가능한 소켓이 없다";
     option.value = "";
     socketSelect.append(option);
     socketSelect.disabled = true;
@@ -163,7 +284,7 @@ function renderSocketOptions(snapshot) {
   for (const socket of sockets) {
     const option = document.createElement("option");
     option.value = socket.id;
-    option.textContent = `${socket.id} | ${socket.role} | ${formatEndpoint(socket.localAddress, socket.localPort)} -> ${formatEndpoint(socket.remoteAddress, socket.remotePort)}`;
+    option.textContent = `${socket.id} | ${displayRole(socket.role)} | ${formatEndpoint(socket.localAddress, socket.localPort)} -> ${formatEndpoint(socket.remoteAddress, socket.remotePort)}`;
     socketSelect.append(option);
   }
 
@@ -194,19 +315,49 @@ function renderServerState(snapshot) {
   listenerAddressEl.textContent = endpoint;
   logFilePathEl.textContent = snapshot?.logFile || "logs/tcp-lab.ndjson";
   serverStateEl.textContent = listening
-    ? `Listening on ${endpoint}. 실제 TCP listener가 열려 있다.`
-    : `Server stopped. ${endpoint} listener is not active.`;
+    ? `${endpoint} 에서 실제 TCP 리스너가 열려 있다.`
+    : `${endpoint} 리스너는 현재 중지 상태다.`;
 }
 
 function renderManagedClientState(snapshot) {
   const clients = activeSockets(snapshot).filter((socket) => socket.role === "managed-client");
   if (clients.length === 0) {
-    managedClientStateEl.textContent = "No managed client connected yet.";
+    managedClientStateEl.textContent = "연결된 클라이언트가 아직 없다.";
     return;
   }
 
   const latest = clients[0];
-  managedClientStateEl.textContent = `Latest managed client: ${latest.id} ${formatEndpoint(latest.localAddress, latest.localPort)} -> ${formatEndpoint(latest.remoteAddress, latest.remotePort)} (${latest.status})`;
+  managedClientStateEl.textContent = `최근 클라이언트: ${latest.id} ${formatEndpoint(latest.localAddress, latest.localPort)} -> ${formatEndpoint(latest.remoteAddress, latest.remotePort)} (${displayStatus(latest.status)})`;
+}
+
+function displayRole(role) {
+  switch (role) {
+    case "managed-client":
+      return "클라이언트 소켓";
+    case "server-peer":
+      return "서버 소켓";
+    default:
+      return prettify(role);
+  }
+}
+
+function displayStatus(status) {
+  switch (status) {
+    case "opening":
+      return "연결 시작";
+    case "open":
+      return "열림";
+    case "ending":
+      return "종료 시작";
+    case "half-closed":
+      return "반쪽 종료";
+    case "closed":
+      return "닫힘";
+    case "error":
+      return "오류";
+    default:
+      return prettify(status);
+  }
 }
 
 function syncPrimaryButtons() {
@@ -238,7 +389,7 @@ async function requestJson(url, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok || data.ok === false) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    throw new Error(data.error || `요청 처리에 실패했다. (${response.status})`);
   }
 
   return data;
@@ -315,12 +466,12 @@ startServerButton.addEventListener("click", () => {
       port: Number(labPortInput.value),
     },
     startServerButton,
-    "Starting...",
+    "시작 중...",
   );
 });
 
 stopServerButton.addEventListener("click", () => {
-  postJson("/lab/tcp/server/stop", {}, stopServerButton, "Stopping...");
+  postJson("/lab/tcp/server/stop", {}, stopServerButton, "중지 중...");
 });
 
 connectClientButton.addEventListener("click", () => {
@@ -332,18 +483,18 @@ connectClientButton.addEventListener("click", () => {
       label: clientLabelInput.value,
     },
     connectClientButton,
-    "Connecting...",
+    "연결 중...",
   );
 });
 
 refreshButton.addEventListener("click", async () => {
-  setPending(refreshButton, true, "Refreshing...");
+  setPending(refreshButton, true, "새로고침 중...");
   try {
     await refreshState();
   } catch (error) {
     window.alert(error.message);
   } finally {
-    setPending(refreshButton, false, "Refreshing...");
+    setPending(refreshButton, false, "새로고침 중...");
     syncPrimaryButtons();
     syncActionButtons();
   }
@@ -357,7 +508,7 @@ sendButton.addEventListener("click", () => {
       text: socketMessage.value,
     },
     sendButton,
-    "Sending...",
+    "전송 중...",
   );
 });
 
@@ -368,7 +519,7 @@ endButton.addEventListener("click", () => {
       socketId: socketSelect.value,
     },
     endButton,
-    "Closing...",
+    "종료 중...",
   );
 });
 
@@ -379,7 +530,7 @@ destroyButton.addEventListener("click", () => {
       socketId: socketSelect.value,
     },
     destroyButton,
-    "Destroying...",
+    "강제 종료 중...",
   );
 });
 

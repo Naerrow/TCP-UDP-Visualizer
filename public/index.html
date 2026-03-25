@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TCP Visualizer</title>
+    <title>TCP 시각화</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="page-shell">
       <nav class="page-nav" aria-label="Primary">
-        <a href="/" class="nav-link is-current" aria-current="page">Learning Demo</a>
-        <a href="/real-tcp.html" class="nav-link">Real TCP Lab</a>
+        <a href="/" class="nav-link is-current" aria-current="page">학습용 데모</a>
+        <a href="/real-tcp.html" class="nav-link">실제 TCP 실험실</a>
       </nav>
 
       <header class="hero">
@@ -23,32 +23,32 @@
       </header>
 
       <section class="control-panel">
-        <button id="clear-log" class="action ghost">Clear Timeline</button>
+        <button id="clear-log" class="action ghost">타임라인 비우기</button>
       </section>
 
       <section class="dashboard">
         <article class="protocol-card tcp-card">
           <div class="card-head">
             <h2>TCP</h2>
-            <span class="badge">Reliable Byte Stream</span>
+            <span class="badge">신뢰형 바이트 스트림</span>
           </div>
           <p class="protocol-summary">
             애플리케이션이 보는 소켓 API 단계와, 그 뒤에서 커널 TCP 스택이
             수행하는 3-way handshake 및 연결 종료 과정을 함께 설명한다.
           </p>
           <div class="card-controls">
-            <button id="start-tcp" class="action tcp">Start TCP</button>
+            <button id="start-tcp" class="action tcp">TCP 시작</button>
             <button id="next-tcp" class="action ghost" disabled>
-              Next Step
+              다음 단계
             </button>
           </div>
           <div class="network-scene" data-protocol="TCP">
-            <div class="node client" data-side="client">Client</div>
+            <div class="node client" data-side="client">클라이언트</div>
             <div class="lane"></div>
-            <div class="node server" data-side="server">Server</div>
+            <div class="node server" data-side="server">서버</div>
             <div class="packet-layer"></div>
           </div>
-          <div class="state-strip" id="tcp-state">Idle</div>
+          <div class="state-strip" id="tcp-state">대기 중</div>
         </article>
       </section>
 
@@ -75,7 +75,7 @@
 
       <section class="timeline-section">
         <div class="timeline-head">
-          <h2>Live Timeline</h2>
+          <h2>실시간 타임라인</h2>
           <p>실제 서버 이벤트가 여기에 순서대로 쌓인다.</p>
         </div>
         <div id="timeline" class="timeline"></div>

@@ -126,8 +126,8 @@ npm run verify
 ### A. Learning Demo 사용법
 
 1. 브라우저에서 `/` 페이지를 연다.
-2. `Start TCP`를 누른다.
-3. `Next Step`을 계속 누르면서 단계별 이벤트를 본다.
+2. `TCP 시작`을 누른다.
+3. `다음 단계`를 계속 누르면서 단계별 이벤트를 본다.
 4. 아래 타임라인에서 `connect()`, `SYN`, `SYN-ACK`, `ACK`, `accept() returned`, `ESTABLISHED`, `write`, `read`, `close()` 흐름을 확인한다.
 
 이 모드는 학습용이므로, 화면에 보이는 handshake 이벤트는 실제 패킷을 직접 캡처한 결과가 아니라 학습용 설명 순서다.
@@ -135,25 +135,25 @@ npm run verify
 ### B. Real TCP Lab 빠른 사용법
 
 1. 상단 탭에서 `Real TCP Lab`로 이동한다.
-2. `Bind Host`에 `127.0.0.1`, `Port`에 `4200`을 둔다.
-3. `Start Server`를 누른다.
-4. 상태 줄에 `Listening on 127.0.0.1:4200`가 보이면 실제 TCP listener가 열린 것이다.
-5. `Connect Client`를 누른다.
-6. `Socket Inventory`에 보통 아래 두 소켓이 생긴다.
-   - `managed-client`
-   - `server-peer`
-7. `Socket Actions`에서 소켓 하나를 선택한다.
-8. 메시지를 입력하고 `Send Message`를 누른다.
-9. `Live Socket Log`에서 실제 `write`와 반대편 `data`를 확인한다.
+2. `바인드 호스트`에 `127.0.0.1`, `포트`에 `4200`을 둔다.
+3. `서버 시작`을 누른다.
+4. 상태 줄에 `127.0.0.1:4200 에서 실제 TCP 리스너가 열려 있다.`가 보이면 실제 TCP 리스너가 열린 것이다.
+5. `클라이언트 연결`을 누른다.
+6. `소켓 현황`에 보통 아래 두 소켓이 생긴다.
+   - `클라이언트 소켓`
+   - `서버 소켓`
+7. `소켓 제어`에서 소켓 하나를 선택한다.
+8. 메시지를 입력하고 `메시지 전송`을 누른다.
+9. `실시간 소켓 로그`에서 실제 `전송`과 반대편 `수신`을 확인한다.
 
 ### C. Real TCP Lab에서 무엇을 보는가
 
-#### Socket Inventory
+#### 소켓 현황
 
 - `ID`
   소켓 식별자
 - `Role`
-  `managed-client` 또는 `server-peer`
+  `클라이언트 소켓` 또는 `서버 소켓`
 - `Status`
   `open`, `ending`, `half-closed`, `closed` 등
 - `Local`
@@ -165,7 +165,7 @@ npm run verify
 - `Bytes Out`
   쓴 누적 바이트
 
-#### Live Socket Log
+#### 실시간 소켓 로그
 
 주요 로그 의미:
 
@@ -188,7 +188,7 @@ npm run verify
 
 이 조합이 가장 직관적이다.
 
-1. `Real TCP Lab`에서 `Start Server`
+1. `Real TCP Lab`에서 `서버 시작`
 2. 별도 터미널에서 아래 명령 실행
 
 ```bash
@@ -196,11 +196,11 @@ nc 127.0.0.1 4200
 ```
 
 3. 터미널에 문자열 입력 후 엔터
-4. 브라우저 `Live Socket Log`에서 `accepted`, `data` 확인
-5. 브라우저에서 `server-peer` 소켓 선택
-6. 메시지를 입력하고 `Send Message`
+4. 브라우저 `실시간 소켓 로그`에서 `연결 수락`, `수신` 확인
+5. 브라우저에서 `서버 소켓` 선택
+6. 메시지를 입력하고 `메시지 전송`
 7. 터미널 `nc` 창에서 응답 확인
-8. 브라우저에서 `Half Close` 또는 `Destroy Socket`으로 종료 과정 확인
+8. 브라우저에서 `정상 종료 시작` 또는 `소켓 강제 종료`로 종료 과정 확인
 
 즉:
 
@@ -209,13 +209,13 @@ nc 127.0.0.1 4200
 
 ### E. 추천 실습: 브라우저만으로 확인
 
-1. `Start Server`
-2. `Connect Client`
-3. `managed-client` 선택 후 `Send Message`
-4. 로그에서 `managed-client write`와 `server-peer data` 확인
-5. `server-peer` 선택 후 응답 전송
-6. 로그에서 `server-peer write`와 `managed-client data` 확인
-7. `Half Close`로 종료 흐름 확인
+1. `서버 시작`
+2. `클라이언트 연결`
+3. `클라이언트 소켓` 선택 후 `메시지 전송`
+4. 로그에서 `클라이언트 소켓 전송`과 `서버 소켓 수신` 확인
+5. `서버 소켓` 선택 후 응답 전송
+6. 로그에서 `서버 소켓 전송`과 `클라이언트 소켓 수신` 확인
+7. `정상 종료 시작`으로 종료 흐름 확인
 
 ## Logs And External Tools
 
@@ -270,17 +270,17 @@ Wireshark를 쓰는 경우에도 같은 포트를 필터링하면 된다.
 
 실습 중 기대할 수 있는 전형적인 흐름:
 
-1. `Connect Client` 직후
+1. `클라이언트 연결` 직후
    - `SYN`
    - `SYN-ACK`
    - `ACK`
 2. 메시지 전송 직후
    - `P.` 또는 `length > 0`인 세그먼트
-3. `Half Close` 직후
+3. `정상 종료 시작` 직후
    - `FIN`
    - 반대편 `ACK`
    - 필요하면 반대 방향 `FIN`
-4. `Destroy Socket`의 경우
+4. `소켓 강제 종료`의 경우
    - 환경에 따라 `RST`가 보일 수 있다
 
 ### 5. 브라우저 DevTools에서 보이는 것
@@ -305,9 +305,9 @@ raw TCP는 아래 세 곳에서 확인한다.
 
 ## 종료 방법
 
-- 특정 소켓 정상 종료: `Half Close`
-- 특정 소켓 강제 종료: `Destroy Socket`
-- 전체 listener 종료: `Stop Server`
+- 특정 소켓 정상 종료: `정상 종료 시작`
+- 특정 소켓 강제 종료: `소켓 강제 종료`
+- 전체 listener 종료: `서버 중지`
 
 ## TCP Lab API
 
@@ -324,7 +324,7 @@ raw TCP는 아래 세 곳에서 확인한다.
 - `POST /lab/tcp/server/stop`
   실제 TCP lab 서버 중지
 - `POST /lab/tcp/client/connect`
-  관리형 TCP 클라이언트 생성 및 연결
+  TCP 클라이언트 생성 및 연결
 - `POST /lab/tcp/socket/send`
   선택한 소켓에서 문자열 전송
 - `POST /lab/tcp/socket/end`

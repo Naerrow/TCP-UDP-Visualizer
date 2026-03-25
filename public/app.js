@@ -20,7 +20,7 @@ function titleFor(event) {
   if (event.title) return event.title;
   if (event.label && event.from && event.to) return `${event.from} -> ${event.to} : ${event.label}`;
   if (event.label) return event.label;
-  return "Transport event";
+  return "전송 계층 이벤트";
 }
 
 function addTimelineItem(event) {
@@ -93,7 +93,7 @@ function animatePacket(event) {
   });
 }
 
-function setPending(button, pending, label = "Working...") {
+function setPending(button, pending, label = "처리 중...") {
   button.textContent = pending ? label : button.dataset.label;
 }
 
@@ -103,14 +103,14 @@ function setTcpRunning(running) {
 }
 
 async function startDemo() {
-  setPending(protocolControls.start, true, "Starting...");
+  setPending(protocolControls.start, true, "시작 중...");
   protocolControls.start.disabled = true;
   protocolControls.next.disabled = true;
 
   try {
     const response = await fetch("/demo/tcp/start", { method: "POST" });
     if (!response.ok) {
-      throw new Error("Failed to start TCP demo");
+      throw new Error("TCP 데모를 시작하지 못했다.");
     }
     const data = await response.json();
     for (const event of data.events || []) {
@@ -124,7 +124,7 @@ async function startDemo() {
       protocol: "TCP",
       type: "error",
       at: new Date().toISOString(),
-      title: "TCP demo failed",
+      title: "TCP 데모 실행 실패",
       detail: error.message,
     });
     setTcpRunning(false);
@@ -137,13 +137,13 @@ async function startDemo() {
 }
 
 async function nextStep() {
-  setPending(protocolControls.next, true, "Advancing...");
+  setPending(protocolControls.next, true, "진행 중...");
   protocolControls.next.disabled = true;
 
   try {
     const response = await fetch("/demo/tcp/next", { method: "POST" });
     if (!response.ok) {
-      throw new Error("Failed to advance TCP demo");
+      throw new Error("TCP 데모를 다음 단계로 진행하지 못했다.");
     }
     const data = await response.json();
     for (const event of data.events || []) {
@@ -161,7 +161,7 @@ async function nextStep() {
       protocol: "TCP",
       type: "error",
       at: new Date().toISOString(),
-      title: "TCP step failed",
+      title: "TCP 단계 진행 실패",
       detail: error.message,
     });
     setTcpRunning(false);
@@ -179,6 +179,6 @@ nextTcpButton.addEventListener("click", () => nextStep());
 
 clearLogButton.addEventListener("click", () => {
   timeline.innerHTML = "";
-  tcpState.textContent = "Idle";
+  tcpState.textContent = "대기 중";
   setTcpRunning(false);
 });

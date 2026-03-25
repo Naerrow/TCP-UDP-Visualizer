@@ -31,7 +31,7 @@ function normalizePort(value, fallback = DEFAULT_PORT) {
 
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("Port must be an integer between 1 and 65535.");
+    throw new Error("포트는 1 이상 65535 이하의 정수여야 한다.");
   }
 
   return port;
@@ -212,7 +212,7 @@ class TcpLabManager {
         label: info.label,
         ...socketAddresses(socket),
         ...bufferFields(buffer),
-        detail: `${info.label} received ${buffer.length}B.`,
+        detail: `${info.label}가 ${buffer.length}B를 수신했다.`,
       });
       this.pushState();
     });
@@ -228,7 +228,7 @@ class TcpLabManager {
         role: info.role,
         label: info.label,
         ...socketAddresses(socket),
-        detail: `${info.label} observed FIN from the peer.`,
+        detail: `${info.label}가 상대의 FIN을 관찰했다.`,
       });
       this.pushState();
     });
@@ -246,7 +246,7 @@ class TcpLabManager {
         label: info.label,
         hadError,
         ...socketAddresses(socket),
-        detail: `${info.label} closed.`,
+        detail: `${info.label} 소켓이 닫혔다.`,
       });
       this.pushState();
     });
@@ -264,7 +264,7 @@ class TcpLabManager {
         code: error.code || null,
         message: error.message,
         ...socketAddresses(socket),
-        detail: `${info.label} emitted an error.`,
+        detail: `${info.label}에서 오류가 발생했다.`,
       });
       this.pushState();
     });
@@ -274,14 +274,14 @@ class TcpLabManager {
 
   async startServer(options = {}) {
     if (this.server) {
-      throw new Error("The TCP lab server is already running.");
+      throw new Error("TCP 실험실 서버가 이미 실행 중이다.");
     }
 
     this.host = normalizeHost(options.host);
     this.port = normalizePort(options.port, this.port);
 
     const server = net.createServer((socket) => {
-      const info = this.createSocketInfo("server-peer", "Accepted peer");
+      const info = this.createSocketInfo("server-peer", "서버 소켓");
       info.status = "open";
       info.openedAt = new Date().toISOString();
       this.attachSocket(socket, info);
@@ -294,7 +294,7 @@ class TcpLabManager {
         role: info.role,
         label: info.label,
         ...socketAddresses(socket),
-        detail: `Accepted TCP connection from ${socket.remoteAddress}:${socket.remotePort}.`,
+        detail: `${socket.remoteAddress}:${socket.remotePort} 에서 들어온 TCP 연결을 서버가 수락했다.`,
       });
       this.pushState();
     });
@@ -307,7 +307,7 @@ class TcpLabManager {
         message: error.message,
         host: this.host,
         port: this.port,
-        detail: "The TCP lab server emitted an error.",
+        detail: "TCP 실험실 서버에서 오류가 발생했다.",
       });
       this.pushState();
     });
@@ -327,7 +327,7 @@ class TcpLabManager {
       action: "listening",
       host: this.host,
       port: this.port,
-      detail: `Listening on ${this.host}:${this.port}.`,
+      detail: `${this.host}:${this.port} 에서 TCP 리스닝을 시작했다.`,
     });
     this.pushState();
 
@@ -371,7 +371,7 @@ class TcpLabManager {
       action: "stopped",
       host: this.host,
       port: this.port,
-      detail: `Stopped listening on ${this.host}:${this.port}.`,
+      detail: `${this.host}:${this.port} TCP 리스닝을 중지했다.`,
     });
     this.pushState();
 
@@ -383,7 +383,7 @@ class TcpLabManager {
     const port = normalizePort(options.port, this.port);
     const label = typeof options.label === "string" && options.label.trim()
       ? options.label.trim()
-      : "Managed client";
+      : "클라이언트";
 
     const socket = new net.Socket();
     const info = this.createSocketInfo("managed-client", label);
@@ -397,7 +397,7 @@ class TcpLabManager {
       label: info.label,
       host,
       port,
-      detail: `${info.label} is connecting to ${host}:${port}.`,
+      detail: `${info.label}가 ${host}:${port} 연결을 시도했다.`,
     });
     this.pushState();
 
@@ -415,7 +415,7 @@ class TcpLabManager {
           role: info.role,
           label: info.label,
           ...socketAddresses(socket),
-          detail: `${info.label} connected to ${host}:${port}.`,
+          detail: `${info.label}가 ${host}:${port}에 연결됐다.`,
         });
         this.pushState();
         settled = true;
@@ -441,12 +441,12 @@ class TcpLabManager {
   async send(socketId, text) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket || entry.socket.destroyed) {
-      throw new Error("The selected socket is not writable.");
+      throw new Error("선택한 소켓은 전송 가능한 상태가 아니다.");
     }
 
     const payload = Buffer.from(typeof text === "string" ? text : String(text || ""), "utf8");
     if (payload.length === 0) {
-      throw new Error("Message must not be empty.");
+      throw new Error("메시지는 비워 둘 수 없다.");
     }
 
     await new Promise((resolve, reject) => {
@@ -468,7 +468,7 @@ class TcpLabManager {
       label: entry.info.label,
       ...socketAddresses(entry.socket),
       ...bufferFields(payload),
-      detail: `${entry.info.label} sent ${payload.length}B.`,
+      detail: `${entry.info.label}가 ${payload.length}B를 전송했다.`,
     });
     this.pushState();
 
@@ -478,7 +478,7 @@ class TcpLabManager {
   async end(socketId) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket || entry.socket.destroyed) {
-      throw new Error("The selected socket is not open.");
+      throw new Error("선택한 소켓이 열려 있지 않다.");
     }
 
     entry.info.status = "ending";
@@ -491,7 +491,7 @@ class TcpLabManager {
       role: entry.info.role,
       label: entry.info.label,
       ...socketAddresses(entry.socket),
-      detail: `${entry.info.label} sent FIN with socket.end().`,
+      detail: `${entry.info.label}가 socket.end()로 FIN 전송을 시작했다.`,
     });
     this.pushState();
 
@@ -501,7 +501,7 @@ class TcpLabManager {
   async destroy(socketId) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket || entry.socket.destroyed) {
-      throw new Error("The selected socket is not open.");
+      throw new Error("선택한 소켓이 열려 있지 않다.");
     }
 
     this.syncSocketInfo(entry.info, entry.socket);
@@ -513,7 +513,7 @@ class TcpLabManager {
       role: entry.info.role,
       label: entry.info.label,
       ...socketAddresses(entry.socket),
-      detail: `${entry.info.label} destroyed the socket.`,
+      detail: `${entry.info.label}가 소켓을 강제로 종료했다.`,
     });
     this.pushState();
 
