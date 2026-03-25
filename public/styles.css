@@ -7,6 +7,7 @@
   --muted: #97a6b6;
   --border: rgba(168, 186, 201, 0.14);
   --tcp: #37b4c4;
+  --udp: #ff9d4d;
   --accent: #ffb454;
   --shadow: 0 24px 60px rgba(2, 6, 12, 0.42);
 }
@@ -67,8 +68,16 @@ body {
 }
 
 .nav-link.is-current {
-  background: var(--tcp);
   color: white;
+}
+
+.nav-link.is-current.tcp,
+.nav-link.is-current.lab {
+  background: var(--tcp);
+}
+
+.nav-link.is-current.udp {
+  background: var(--udp);
 }
 
 .hero {
@@ -140,6 +149,11 @@ body {
 
 .action.tcp {
   background: var(--tcp);
+  color: white;
+}
+
+.action.udp {
+  background: var(--udp);
   color: white;
 }
 
@@ -344,6 +358,10 @@ body {
   background: linear-gradient(135deg, #1d9aaa, #0a6070);
 }
 
+.network-scene[data-protocol="UDP"] .node {
+  background: linear-gradient(135deg, #ffb36a, #c85c2d);
+}
+
 .lane {
   position: relative;
   height: 10px;
@@ -382,6 +400,10 @@ body {
 
 .packet.tcp {
   background: var(--tcp);
+}
+
+.packet.udp {
+  background: var(--udp);
 }
 
 .state-strip {
@@ -501,6 +523,12 @@ body {
 .event-type.tcp {
   background: rgba(55, 180, 196, 0.16);
   color: var(--tcp);
+}
+
+.protocol-pill.udp,
+.event-type.udp {
+  background: rgba(255, 157, 77, 0.16);
+  color: var(--udp);
 }
 
 .event-time {

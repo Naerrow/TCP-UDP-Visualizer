@@ -76,7 +76,7 @@ async function verifyProtocol(protocol, steps, completionTitle, requiredLabels) 
 }
 
 async function main() {
-  await verifyProtocol("tcp", 15, "TCP session completed", [
+  await verifyProtocol("tcp", 15, "TCP 세션 종료", [
     "BIND",
     "LISTEN + ACCEPT WAIT",
     "connect()",
@@ -95,6 +95,21 @@ async function main() {
     "FIN RECEIVED / ACK IMPLIED",
     "server close() / FIN",
     "FINAL ACK IMPLIED / CLOSED",
+  ]);
+
+  await verifyProtocol("udp", 11, "UDP 세션 종료", [
+    "BIND",
+    "RECVFROM WAIT",
+    "socket() + bind()",
+    "NO HANDSHAKE / NO ACCEPT",
+    "send() #1 / 4B",
+    "recvfrom() #1 / 4B",
+    "send() #2 / 4B",
+    "recvfrom() #2 / 4B",
+    "DATAGRAM BOUNDARIES PRESERVED",
+    { includes: "send() reply /" },
+    { includes: "recvfrom() reply /" },
+    "close() / NO FIN",
   ]);
 
   console.log("verification passed");
