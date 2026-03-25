@@ -27,7 +27,9 @@ const destroyButton = document.getElementById("destroy-socket");
 
 const uiState = {
   snapshot: null,
+  syncTimerId: null,
 };
+const MAX_LOG_ITEMS = 300;
 
 function prettify(value) {
   return (value || "event").replace(/[_-]/g, " ");
@@ -53,9 +55,28 @@ function writableSockets(snapshot) {
   return activeSockets(snapshot).filter((socket) => socket.status !== "half-closed");
 }
 
+function snapshotVersion(snapshot) {
+  return Number(snapshot?.version) || 0;
+}
+
 function setPending(button, pending, label) {
   button.textContent = pending ? label : button.dataset.label;
   button.disabled = pending;
+}
+
+function scheduleStateSync(delay = 150) {
+  if (uiState.syncTimerId) {
+    window.clearTimeout(uiState.syncTimerId);
+  }
+
+  uiState.syncTimerId = window.setTimeout(async () => {
+    uiState.syncTimerId = null;
+    try {
+      await refreshState();
+    } catch (error) {
+      console.warn("Delayed TCP lab state sync failed.", error);
+    }
+  }, delay);
 }
 
 function applyButtonLabels() {
@@ -298,6 +319,30 @@ function renderSocketOptions(snapshot) {
   destroyButton.disabled = false;
 }
 
+function appendLiveLog(event) {
+  if (!uiState.snapshot) {
+    return;
+  }
+
+  const currentVersion = snapshotVersion(uiState.snapshot);
+  const incomingVersion = Number(event?.stateVersion) || 0;
+  if (incomingVersion && incomingVersion < currentVersion) {
+    return;
+  }
+
+  const currentLogs = uiState.snapshot.logs || [];
+  if (currentLogs.some((item) => item.id === event.id)) {
+    return;
+  }
+
+  const nextLogs = currentLogs.concat(event).slice(-MAX_LOG_ITEMS);
+  applyState({
+    ...uiState.snapshot,
+    version: Math.max(currentVersion, incomingVersion),
+    logs: nextLogs,
+  });
+}
+
 function renderCommands(snapshot) {
   const host = snapshot?.host || "127.0.0.1";
   const port = snapshot?.port || 4200;
@@ -368,6 +413,12 @@ function syncPrimaryButtons() {
 }
 
 function applyState(snapshot) {
+  const currentVersion = snapshotVersion(uiState.snapshot);
+  const incomingVersion = snapshotVersion(snapshot);
+  if (uiState.snapshot && incomingVersion < currentVersion) {
+    return;
+  }
+
   uiState.snapshot = snapshot;
 
   labHostInput.value = snapshot.host || labHostInput.value;
@@ -414,6 +465,7 @@ async function postJson(url, body, button, pendingLabel) {
       body: JSON.stringify(body || {}),
     });
     applyState(state);
+    scheduleStateSync();
   } catch (error) {
     window.alert(error.message);
   } finally {
@@ -449,6 +501,11 @@ function connectStream() {
     const payload = JSON.parse(event.data);
     if (payload.type === "state") {
       applyState(payload.state);
+      return;
+    }
+
+    if (payload.type === "log") {
+      appendLiveLog(payload.event);
     }
   };
 

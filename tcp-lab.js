@@ -91,6 +91,7 @@ class TcpLabManager {
     this.logs = [];
     this.logSequence = 0;
     this.socketSequence = 0;
+    this.stateVersion = 0;
     this.socketEntries = new Map();
     this.streams = new Set();
   }
@@ -99,6 +100,7 @@ class TcpLabManager {
     const record = {
       id: makeId("lab", ++this.logSequence),
       at: new Date().toISOString(),
+      stateVersion: ++this.stateVersion,
       ...event,
     };
 
@@ -135,6 +137,7 @@ class TcpLabManager {
       });
 
     return {
+      version: this.stateVersion,
       host: this.host,
       port: this.port,
       listening: Boolean(this.server),
