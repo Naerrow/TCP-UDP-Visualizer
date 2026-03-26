@@ -80,6 +80,10 @@ body {
   background: var(--udp);
 }
 
+.nav-link.is-current.udp-lab {
+  background: var(--udp);
+}
+
 .hero {
   padding: 28px 32px;
   border: 1px solid var(--border);
@@ -457,6 +461,10 @@ body {
   gap: 18px;
 }
 
+#udp-lab-log.timeline {
+  gap: 18px;
+}
+
 .timeline-item {
   padding: 16px;
   border-radius: 18px;
@@ -481,13 +489,18 @@ body {
   border-left-color: #0a9396;
 }
 
+.log-item[data-action="send"] {
+  border-left-color: #d97706;
+}
+
 .log-item[data-action="data"] {
   border-left-color: #2a9d8f;
 }
 
 .log-item[data-action="accepted"],
 .log-item[data-action="connected"],
-.log-item[data-action="listening"] {
+.log-item[data-action="listening"],
+.log-item[data-action="bound"] {
   border-left-color: #006d77;
 }
 

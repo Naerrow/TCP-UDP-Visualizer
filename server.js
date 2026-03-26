@@ -5,6 +5,7 @@ const net = require("net");
 const dgram = require("dgram");
 const { URL } = require("url");
 const { createTcpLabManager, TCP_LAB_LOG_FILE } = require("./tcp-lab");
+const { createUdpLabManager, UDP_LAB_LOG_FILE } = require("./udp-lab");
 
 const HOST = "127.0.0.1";
 const WEB_PORT = Number(process.env.PORT) || 3000;
@@ -15,6 +16,7 @@ const publicDir = path.join(__dirname, "public");
 let tcpSession = null;
 let udpSession = null;
 const tcpLab = createTcpLabManager();
+const udpLab = createUdpLabManager();
 
 function respondJson(res, status, body) {
   res.writeHead(status, {
@@ -89,11 +91,11 @@ function readJsonBody(req) {
   });
 }
 
-function serveLabLogFile(res) {
-  const stream = fs.createReadStream(TCP_LAB_LOG_FILE);
+function serveLabLogFile(res, filePath, downloadName, readErrorMessage) {
+  const stream = fs.createReadStream(filePath);
   stream.on("error", () => {
     if (!res.headersSent) {
-      respondJson(res, 500, { ok: false, error: "Failed to read the TCP lab log file." });
+      respondJson(res, 500, { ok: false, error: readErrorMessage });
     } else {
       res.destroy();
     }
@@ -101,7 +103,7 @@ function serveLabLogFile(res) {
 
   res.writeHead(200, {
     "Content-Type": "application/x-ndjson; charset=utf-8",
-    "Content-Disposition": 'attachment; filename="tcp-lab.ndjson"',
+    "Content-Disposition": `attachment; filename="${downloadName}"`,
     "Cache-Control": "no-store",
   });
 
@@ -1156,6 +1158,13 @@ function respondLabState(res, status = 200) {
   });
 }
 
+function respondUdpLabState(res, status = 200) {
+  respondJson(res, status, {
+    ok: true,
+    ...udpLab.getState(),
+  });
+}
+
 async function handleLabServerStart(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1215,6 +1224,58 @@ async function handleLabSocketDestroy(req, res) {
   }
 }
 
+async function handleUdpLabServerStart(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.startServer(body);
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabServerStop(req, res) {
+  try {
+    await udpLab.stopServer();
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 500, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabClientBind(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.bindManagedClient(body);
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabSocketSend(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.send(body.socketId, body.text, {
+      host: body.host,
+      port: body.port,
+    });
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabSocketClose(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.closeSocket(body.socketId);
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (!req.url) {
     res.writeHead(400);
@@ -1255,7 +1316,12 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/lab/tcp/logs/download") {
-    serveLabLogFile(res);
+    serveLabLogFile(
+      res,
+      TCP_LAB_LOG_FILE,
+      "tcp-lab.ndjson",
+      "Failed to read the TCP lab log file.",
+    );
     return;
   }
 
@@ -1286,6 +1352,51 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/lab/tcp/socket/destroy") {
     handleLabSocketDestroy(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/udp/state") {
+    respondUdpLabState(res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/udp/stream") {
+    udpLab.registerStream(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/udp/logs/download") {
+    serveLabLogFile(
+      res,
+      UDP_LAB_LOG_FILE,
+      "udp-lab.ndjson",
+      "Failed to read the UDP lab log file.",
+    );
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/server/start") {
+    handleUdpLabServerStart(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/server/stop") {
+    handleUdpLabServerStop(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/client/bind") {
+    handleUdpLabClientBind(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/socket/send") {
+    handleUdpLabSocketSend(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/socket/close") {
+    handleUdpLabSocketClose(req, res);
     return;
   }
 
