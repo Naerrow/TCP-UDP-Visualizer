@@ -2,16 +2,21 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const net = require("net");
+const dgram = require("dgram");
 const { URL } = require("url");
 const { createTcpLabManager, TCP_LAB_LOG_FILE } = require("./tcp-lab");
+const { createUdpLabManager, UDP_LAB_LOG_FILE } = require("./udp-lab");
 
 const HOST = "127.0.0.1";
 const WEB_PORT = Number(process.env.PORT) || 3000;
 const TCP_PORT = Number(process.env.TCP_PORT) || 4100;
+const UDP_PORT = Number(process.env.UDP_PORT) || 4300;
 
 const publicDir = path.join(__dirname, "public");
 let tcpSession = null;
+let udpSession = null;
 const tcpLab = createTcpLabManager();
+const udpLab = createUdpLabManager();
 
 function respondJson(res, status, body) {
   res.writeHead(status, {
@@ -86,11 +91,11 @@ function readJsonBody(req) {
   });
 }
 
-function serveLabLogFile(res) {
-  const stream = fs.createReadStream(TCP_LAB_LOG_FILE);
+function serveLabLogFile(res, filePath, downloadName, readErrorMessage) {
+  const stream = fs.createReadStream(filePath);
   stream.on("error", () => {
     if (!res.headersSent) {
-      respondJson(res, 500, { ok: false, error: "Failed to read the TCP lab log file." });
+      respondJson(res, 500, { ok: false, error: readErrorMessage });
     } else {
       res.destroy();
     }
@@ -98,7 +103,7 @@ function serveLabLogFile(res) {
 
   res.writeHead(200, {
     "Content-Type": "application/x-ndjson; charset=utf-8",
-    "Content-Disposition": 'attachment; filename="tcp-lab.ndjson"',
+    "Content-Disposition": `attachment; filename="${downloadName}"`,
     "Cache-Control": "no-store",
   });
 
@@ -111,6 +116,60 @@ function wait(ms) {
 
 function closeTcpServer(server) {
   return new Promise((resolve) => server.close(resolve));
+}
+
+function bindUdpSocket(socket, port, host) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      socket.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      socket.off("error", onError);
+      resolve();
+    };
+
+    socket.once("error", onError);
+    socket.bind(port, host, onListening);
+  });
+}
+
+function sendUdpDatagram(socket, payload, port, host) {
+  return new Promise((resolve, reject) => {
+    socket.send(payload, port, host, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function closeUdpSocket(socket) {
+  return new Promise((resolve) => {
+    if (!socket) {
+      resolve();
+      return;
+    }
+
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+
+    socket.once("close", finish);
+
+    try {
+      socket.close();
+    } catch (_) {
+      finish();
+    }
+  });
 }
 
 class TcpSession {
@@ -224,7 +283,7 @@ class TcpSession {
       session: this.session,
       type: "session",
       phase: "start",
-      title: "TCP step demo started",
+      title: "TCP 단계형 데모 시작",
       detail: "이 데모는 앱에서 관찰 가능한 소켓 API 단계와, 그 뒤에서 TCP가 무엇을 하는지 연결해서 설명한다.",
       controls: {
         canAdvance: true,
@@ -582,7 +641,7 @@ class TcpSession {
           session: this.session,
           type: "session",
           phase: "complete",
-          title: "TCP session completed",
+          title: "TCP 세션 종료",
           detail: "connect() 호출부터 SYN, SYN-ACK, ACK, connect() 반환, accept() 반환, ESTABLISHED, 데이터 송수신, 종료까지 확인했다.",
           controls: {
             canAdvance: false,
@@ -611,16 +670,380 @@ class TcpSession {
     }
   }
 }
-async function cleanupSession() {
+
+class UdpSession {
+  constructor() {
+    this.protocol = "UDP";
+    this.session = `udp-${Date.now()}`;
+    this.stepIndex = 0;
+    this.completed = false;
+    this.serverSocket = null;
+    this.clientSocket = null;
+    this.clientAddress = null;
+    this.serverMessages = [];
+    this.clientMessages = [];
+    this.serverWaiters = [];
+    this.clientWaiters = [];
+    this.stepEvents = [];
+  }
+
+  emit(event) {
+    const enriched = {
+      ...event,
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      at: new Date().toISOString(),
+    };
+    this.stepEvents.push(enriched);
+    return enriched;
+  }
+
+  flushEvents() {
+    const events = this.stepEvents;
+    this.stepEvents = [];
+    return events;
+  }
+
+  observeDatagram(target, buffer, rinfo) {
+    const datagram = {
+      bytes: buffer.length,
+      message: buffer.toString("utf8"),
+      address: rinfo.address,
+      port: rinfo.port,
+    };
+
+    if (target === "server") {
+      this.serverMessages.push(datagram);
+      const waiter = this.serverWaiters.shift();
+      if (waiter) {
+        waiter(datagram);
+      }
+      return;
+    }
+
+    this.clientMessages.push(datagram);
+    const waiter = this.clientWaiters.shift();
+    if (waiter) {
+      waiter(datagram);
+    }
+  }
+
+  waitForDatagram(target, index) {
+    const messages = target === "server" ? this.serverMessages : this.clientMessages;
+    const waiters = target === "server" ? this.serverWaiters : this.clientWaiters;
+
+    if (messages.length > index) {
+      return Promise.resolve(messages[index]);
+    }
+
+    return new Promise((resolve) => {
+      waiters.push(resolve);
+    });
+  }
+
+  async start() {
+    this.serverSocket = dgram.createSocket("udp4");
+    this.serverSocket.on("message", (buffer, rinfo) => {
+      this.observeDatagram("server", buffer, rinfo);
+    });
+
+    await bindUdpSocket(this.serverSocket, UDP_PORT, HOST);
+
+    this.emit({
+      protocol: this.protocol,
+      session: this.session,
+      type: "state",
+      side: "server",
+      label: "BIND",
+      detail: `UDP 서버 소켓이 ${HOST}:${UDP_PORT} 에 바인드됐다. 이제 이 포트로 들어오는 datagram을 받을 수 있다.`,
+      controls: {
+        canAdvance: true,
+        completed: false,
+      },
+    });
+
+    this.emit({
+      protocol: this.protocol,
+      session: this.session,
+      type: "session",
+      phase: "start",
+      title: "UDP 단계형 데모 시작",
+      detail: "이 데모는 UDP 소켓이 connect/accept 없이 datagram을 보내고 받는 과정을 단계별로 설명한다.",
+      controls: {
+        canAdvance: true,
+        completed: false,
+      },
+    });
+
+    this.emit({
+      protocol: this.protocol,
+      session: this.session,
+      type: "state",
+      side: "server",
+      label: "RECVFROM WAIT",
+      detail: "서버 애플리케이션은 recvfrom()에 해당하는 대기 상태로 첫 datagram을 기다린다.",
+      controls: {
+        canAdvance: true,
+        completed: false,
+      },
+    });
+  }
+
+  async next() {
+    if (this.completed) {
+      return { completed: true };
+    }
+
+    switch (this.stepIndex) {
+      case 0: {
+        this.stepIndex += 1;
+        this.clientSocket = dgram.createSocket("udp4");
+        this.clientSocket.on("message", (buffer, rinfo) => {
+          this.observeDatagram("client", buffer, rinfo);
+        });
+
+        await bindUdpSocket(this.clientSocket, 0, HOST);
+        this.clientAddress = this.clientSocket.address();
+
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "syscall",
+          side: "client",
+          label: "socket() + bind()",
+          detail: `클라이언트 UDP 소켓을 만들고 ${this.clientAddress.address}:${this.clientAddress.port} 에 바인드했다. 이제 바로 datagram을 보낼 수 있다.`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+      }
+
+      case 1:
+        this.stepIndex += 1;
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "state",
+          side: "both",
+          label: "NO HANDSHAKE / NO ACCEPT",
+          detail: "UDP는 SYN, SYN-ACK, ACK를 교환하지 않는다. 서버도 accept() 없이 datagram을 바로 recvfrom()으로 받는다.",
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+
+      case 2: {
+        this.stepIndex += 1;
+        const message = "MSG1";
+        await sendUdpDatagram(this.clientSocket, message, UDP_PORT, HOST);
+        await wait(40);
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "data",
+          from: "client",
+          to: "server",
+          label: `send() #1 / ${Buffer.byteLength(message)}B`,
+          bytes: Buffer.byteLength(message),
+          message,
+          detail: `클라이언트가 첫 번째 UDP datagram ${message} 를 ${HOST}:${UDP_PORT} 로 전송했다.`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+      }
+
+      case 3: {
+        this.stepIndex += 1;
+        const datagram = await this.waitForDatagram("server", 0);
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "read",
+          side: "server",
+          label: `recvfrom() #1 / ${datagram.bytes}B`,
+          message: datagram.message,
+          detail: `서버가 ${datagram.address}:${datagram.port} 로부터 첫 datagram을 받았다: ${datagram.message}`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+      }
+
+      case 4: {
+        this.stepIndex += 1;
+        const message = "MSG2";
+        await sendUdpDatagram(this.clientSocket, message, UDP_PORT, HOST);
+        await wait(40);
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "data",
+          from: "client",
+          to: "server",
+          label: `send() #2 / ${Buffer.byteLength(message)}B`,
+          bytes: Buffer.byteLength(message),
+          message,
+          detail: `클라이언트가 두 번째 UDP datagram ${message} 를 ${HOST}:${UDP_PORT} 로 전송했다.`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+      }
+
+      case 5: {
+        this.stepIndex += 1;
+        const datagram = await this.waitForDatagram("server", 1);
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "read",
+          side: "server",
+          label: `recvfrom() #2 / ${datagram.bytes}B`,
+          message: datagram.message,
+          detail: `서버가 ${datagram.address}:${datagram.port} 로부터 두 번째 datagram을 받았다: ${datagram.message}`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+      }
+
+      case 6:
+        this.stepIndex += 1;
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "state",
+          side: "both",
+          label: "DATAGRAM BOUNDARIES PRESERVED",
+          detail: "이번 실행에서는 send() 두 번이 recvfrom() 두 번으로 관찰됐다. UDP는 바이트 스트림이 아니라 datagram 경계를 유지한다. 다만 전달 보장과 순서 보장은 하지 않는다.",
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+
+      case 7: {
+        this.stepIndex += 1;
+        const target = this.serverMessages[0];
+        const responseMessage = `UDP RESPONSE: ${this.serverMessages.length} datagrams`;
+        await sendUdpDatagram(this.serverSocket, responseMessage, target.port, target.address);
+        await wait(40);
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "response",
+          from: "server",
+          to: "client",
+          label: `send() reply / ${Buffer.byteLength(responseMessage)}B`,
+          message: responseMessage,
+          detail: `서버가 ${target.address}:${target.port} 로 응답 datagram을 보냈다.`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+      }
+
+      case 8: {
+        this.stepIndex += 1;
+        const datagram = await this.waitForDatagram("client", 0);
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "read",
+          side: "client",
+          label: `recvfrom() reply / ${datagram.bytes}B`,
+          message: datagram.message,
+          detail: `클라이언트가 서버 응답 datagram을 받았다: ${datagram.message}`,
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+      }
+
+      case 9:
+        this.stepIndex += 1;
+        await this.cleanup();
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "close",
+          side: "both",
+          label: "close() / NO FIN",
+          detail: "UDP에는 연결 종료 handshake가 없다. 양쪽 소켓을 닫으면 커널의 UDP 엔드포인트만 정리되고 데모가 끝난다.",
+          controls: {
+            canAdvance: true,
+            completed: false,
+          },
+        });
+        return { completed: false };
+
+      case 10:
+        this.stepIndex += 1;
+        this.emit({
+          protocol: this.protocol,
+          session: this.session,
+          type: "session",
+          phase: "complete",
+          title: "UDP 세션 종료",
+          detail: "bind, recvfrom wait, datagram 전송 2회, recvfrom 2회, reply, close까지 확인했다.",
+          controls: {
+            canAdvance: false,
+            completed: true,
+          },
+        });
+        this.completed = true;
+        return { completed: true };
+
+      default:
+        return { completed: true };
+    }
+  }
+
+  async cleanup() {
+    if (this.clientSocket) {
+      await closeUdpSocket(this.clientSocket);
+      this.clientSocket = null;
+    }
+    if (this.serverSocket) {
+      await closeUdpSocket(this.serverSocket);
+      this.serverSocket = null;
+    }
+  }
+}
+async function cleanupTcpSession() {
   if (tcpSession) {
     await tcpSession.cleanup();
     tcpSession = null;
   }
 }
 
+async function cleanupUdpSession() {
+  if (udpSession) {
+    await udpSession.cleanup();
+    udpSession = null;
+  }
+}
+
 async function handleDemoStart(req, res) {
   try {
-    await cleanupSession();
+    await cleanupTcpSession();
     tcpSession = new TcpSession();
     await tcpSession.start();
     respondJson(res, 202, {
@@ -656,11 +1079,66 @@ async function handleDemoNext(req, res) {
       events,
     });
   } catch (error) {
-    await cleanupSession();
+    await cleanupTcpSession();
     const event = {
       protocol: "TCP",
       type: "error",
-      title: "TCP demo failed",
+      title: "TCP 데모 실행 실패",
+      detail: error.message,
+      controls: {
+        canAdvance: false,
+        completed: true,
+      },
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      at: new Date().toISOString(),
+    };
+    respondJson(res, 500, { ok: false, error: error.message, events: [event] });
+  }
+}
+
+async function handleUdpDemoStart(req, res) {
+  try {
+    await cleanupUdpSession();
+    udpSession = new UdpSession();
+    await udpSession.start();
+    respondJson(res, 202, {
+      ok: true,
+      protocol: "udp",
+      session: udpSession.session,
+      completed: false,
+      events: udpSession.flushEvents(),
+    });
+  } catch (error) {
+    respondJson(res, 500, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpDemoNext(req, res) {
+  try {
+    if (!udpSession) {
+      respondJson(res, 409, { ok: false, error: "No active session. Start a demo first." });
+      return;
+    }
+
+    const session = udpSession;
+    const result = await session.next();
+    const events = session.flushEvents();
+    if (result.completed) {
+      udpSession = null;
+    }
+
+    respondJson(res, 202, {
+      ok: true,
+      protocol: "udp",
+      completed: result.completed,
+      events,
+    });
+  } catch (error) {
+    await cleanupUdpSession();
+    const event = {
+      protocol: "UDP",
+      type: "error",
+      title: "UDP 데모 실행 실패",
       detail: error.message,
       controls: {
         canAdvance: false,
@@ -677,6 +1155,13 @@ function respondLabState(res, status = 200) {
   respondJson(res, status, {
     ok: true,
     ...tcpLab.getState(),
+  });
+}
+
+function respondUdpLabState(res, status = 200) {
+  respondJson(res, status, {
+    ok: true,
+    ...udpLab.getState(),
   });
 }
 
@@ -739,6 +1224,58 @@ async function handleLabSocketDestroy(req, res) {
   }
 }
 
+async function handleUdpLabServerStart(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.startServer(body);
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabServerStop(req, res) {
+  try {
+    await udpLab.stopServer();
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 500, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabClientBind(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.bindManagedClient(body);
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabSocketSend(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.send(body.socketId, body.text, {
+      host: body.host,
+      port: body.port,
+    });
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
+async function handleUdpLabSocketClose(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    await udpLab.closeSocket(body.socketId);
+    respondUdpLabState(res, 202);
+  } catch (error) {
+    respondJson(res, 400, { ok: false, error: error.message });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (!req.url) {
     res.writeHead(400);
@@ -758,6 +1295,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/demo/udp/start") {
+    handleUdpDemoStart(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/demo/udp/next") {
+    handleUdpDemoNext(req, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/lab/tcp/state") {
     respondLabState(res);
     return;
@@ -769,7 +1316,12 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/lab/tcp/logs/download") {
-    serveLabLogFile(res);
+    serveLabLogFile(
+      res,
+      TCP_LAB_LOG_FILE,
+      "tcp-lab.ndjson",
+      "Failed to read the TCP lab log file.",
+    );
     return;
   }
 
@@ -800,6 +1352,51 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && url.pathname === "/lab/tcp/socket/destroy") {
     handleLabSocketDestroy(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/udp/state") {
+    respondUdpLabState(res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/udp/stream") {
+    udpLab.registerStream(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/lab/udp/logs/download") {
+    serveLabLogFile(
+      res,
+      UDP_LAB_LOG_FILE,
+      "udp-lab.ndjson",
+      "Failed to read the UDP lab log file.",
+    );
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/server/start") {
+    handleUdpLabServerStart(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/server/stop") {
+    handleUdpLabServerStop(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/client/bind") {
+    handleUdpLabClientBind(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/socket/send") {
+    handleUdpLabSocketSend(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/lab/udp/socket/close") {
+    handleUdpLabSocketClose(req, res);
     return;
   }
 
