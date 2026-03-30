@@ -3,26 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TCP 학습용 데모</title>
+    <title>UDP 학습용 데모</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="page-shell">
       <nav class="page-nav" aria-label="Primary">
-        <a href="/" class="nav-link tcp is-current" aria-current="page"
-          >TCP 학습용 데모</a
+        <a href="/" class="nav-link tcp">TCP 학습용 데모</a>
+        <a
+          href="/udp-demo.html"
+          class="nav-link udp is-current"
+          aria-current="page"
+          >UDP 학습용 데모</a
         >
-        <a href="/udp-demo.html" class="nav-link udp">UDP 학습용 데모</a>
         <a href="/real-tcp.html" class="nav-link lab">실제 TCP 실험실</a>
         <a href="/real-udp.html" class="nav-link udp-lab">실제 UDP 실험실</a>
       </nav>
 
       <header class="hero">
-        <h1>TCP 연결 수립과 데이터 전송 과정을 단계별로 확인하기</h1>
+        <h1>UDP datagram 전송과 수신 과정을 단계별로 확인하기</h1>
         <p class="hero-copy">
-          브라우저에서 데모를 실행하면 Node 서버가 실제 TCP 소켓을 열어
-          통신하고, `bind`, `listen`, `accept`, `connect()`, handshake 완료,
-          데이터 송수신, 종료 흐름이 단계별로 반영된다.
+          브라우저에서 데모를 실행하면 Node 서버가 실제 UDP 소켓을 열어
+          통신하고, `bind`, `recvfrom` 대기, datagram 전송과 수신, 응답, 종료
+          흐름이 단계별로 반영된다.
         </p>
       </header>
 
@@ -31,22 +34,23 @@
       </section>
 
       <section class="dashboard">
-        <article class="protocol-card tcp-card">
+        <article class="protocol-card udp-card">
           <div class="card-head">
-            <h2>TCP</h2>
-            <span class="badge">신뢰형 바이트 스트림</span>
+            <h2>UDP</h2>
+            <span class="badge">비연결형 데이터그램</span>
           </div>
           <p class="protocol-summary">
-            애플리케이션이 보는 소켓 API 단계와, 그 뒤에서 커널 TCP 스택이
-            수행하는 3-way handshake 및 연결 종료 과정을 함께 설명한다.
+            애플리케이션이 보는 UDP 소켓 API 단계와, 그 과정에서 datagram 경계가
+            어떻게 유지되는지, 그리고 왜 TCP처럼 handshake/accept가 없는지를
+            함께 설명한다.
           </p>
           <div class="card-controls">
-            <button id="start-demo" class="action tcp">TCP 시작</button>
+            <button id="start-demo" class="action udp">UDP 시작</button>
             <button id="next-demo" class="action ghost" disabled>
               다음 단계
             </button>
           </div>
-          <div class="network-scene" data-protocol="TCP">
+          <div class="network-scene" data-protocol="UDP">
             <div class="node client" data-side="client">클라이언트</div>
             <div class="lane"></div>
             <div class="node server" data-side="server">서버</div>
@@ -58,37 +62,36 @@
 
       <section class="insight-grid">
         <article class="insight-card">
-          <h3>TCP 핵심 포인트</h3>
+          <h3>UDP 핵심 포인트</h3>
           <ul>
             <li>
-              서버는 `bind -> listen -> accept wait` 상태로 새 연결을 기다린다.
+              UDP는 연결 수립 handshake가 없어서 `connect()`와 `accept()` 없이
+              바로 datagram을 보낼 수 있다.
             </li>
             <li>
-              클라이언트의 `connect()` 뒤에서 커널이 `SYN -> SYN-ACK -> ACK`를
-              수행한다.
+              애플리케이션이 `send()` 한 한 번의 payload는 datagram 하나로
+              취급된다.
             </li>
-            <li>handshake 완료 후 `accept()`가 새 연결 소켓을 반환한다.</li>
-            <li>연결 성립 뒤에는 순서 보장되는 바이트 스트림을 송수신한다.</li>
             <li>
-              종료는 한 번에 끊기는 것이 아니라 half-close를 거쳐 마무리된다.
+              서버는 `recvfrom()`에 해당하는 수신에서 발신지 주소와 포트를 함께
+              관찰한다.
             </li>
+            <li>UDP는 바이트 스트림이 아니라 datagram 경계를 유지한다.</li>
+            <li>전달 보장, 순서 보장, 재전송은 UDP 자체가 해주지 않는다.</li>
           </ul>
         </article>
         <article class="insight-card">
           <h3>이 데모의 해석 기준</h3>
           <ul>
             <li>
-              화면은 Wireshark처럼 패킷을 직접 캡처한 것이 아니라, 앱에서 보이는
-              단계와 TCP 개념을 연결해 설명한다.
+              이 화면은 실제 `dgram` 소켓을 사용하지만, 네트워크 전체를 패킷
+              캡처하는 도구는 아니다.
             </li>
             <li>
-              `SYN`, `SYN-ACK`, `ACK`는 실제 TCP 제어 세그먼트지만, 일반
-              애플리케이션 코드에서 직접 `write()`로 보내는 문자열은 아니다.
+              localhost에서는 datagram이 잘 도착하는 경우가 많지만, UDP 프로토콜
+              자체는 손실과 순서 뒤바뀜을 허용한다.
             </li>
-            <li>
-              앱이 직접 보는 것은 `connect()`, `accept()`, `read()`, `close()`
-              같은 소켓 API의 결과다.
-            </li>
+            <li>TCP의 `SYN`, `ACK`, `FIN` 같은 제어 흐름은 UDP에는 없다.</li>
           </ul>
         </article>
       </section>
@@ -96,7 +99,7 @@
       <section class="timeline-section">
         <div class="timeline-head">
           <h2>실시간 타임라인</h2>
-          <p>서버 이벤트가 여기에 순서대로 쌓인다.</p>
+          <p>UDP 서버 이벤트가 여기에 순서대로 쌓인다.</p>
         </div>
         <div id="timeline" class="timeline"></div>
       </section>
@@ -115,7 +118,7 @@
     </template>
 
     <script>
-      window.DEMO_CONFIG = { protocol: "TCP" };
+      window.DEMO_CONFIG = { protocol: "UDP" };
     </script>
     <script src="/app.js"></script>
   </body>

@@ -1,14 +1,18 @@
+const demoConfig = window.DEMO_CONFIG || {};
+const demoProtocol = String(demoConfig.protocol || "TCP").toUpperCase();
+const demoPath = demoProtocol.toLowerCase();
+
 const timeline = document.getElementById("timeline");
 const template = document.getElementById("timeline-item-template");
-const tcpState = document.getElementById("tcp-state");
+const demoState = document.getElementById("demo-state");
 const clearLogButton = document.getElementById("clear-log");
-const startTcpButton = document.getElementById("start-tcp");
-const nextTcpButton = document.getElementById("next-tcp");
-const tcpScene = document.querySelector('.network-scene[data-protocol="TCP"]');
+const startDemoButton = document.getElementById("start-demo");
+const nextDemoButton = document.getElementById("next-demo");
+const demoScene = document.querySelector(`.network-scene[data-protocol="${demoProtocol}"]`);
 
 const protocolControls = {
-  start: startTcpButton,
-  next: nextTcpButton,
+  start: startDemoButton,
+  next: nextDemoButton,
   running: false,
 };
 
@@ -16,11 +20,28 @@ function prettifyType(type) {
   return (type || "event").replace(/_/g, " ");
 }
 
+function displaySide(side) {
+  switch (side) {
+    case "client":
+      return "클라이언트";
+    case "server":
+      return "서버";
+    default:
+      return side;
+  }
+}
+
 function titleFor(event) {
-  if (event.title) return event.title;
-  if (event.label && event.from && event.to) return `${event.from} -> ${event.to} : ${event.label}`;
-  if (event.label) return event.label;
-  return "Transport event";
+  if (event.title) {
+    return event.title;
+  }
+  if (event.label && event.from && event.to) {
+    return `${displaySide(event.from)} -> ${displaySide(event.to)} : ${event.label}`;
+  }
+  if (event.label) {
+    return event.label;
+  }
+  return "전송 계층 이벤트";
 }
 
 function addTimelineItem(event) {
@@ -44,32 +65,39 @@ function addTimelineItem(event) {
 }
 
 function updateState(event) {
-  if (event.type === "session" && event.phase === "start") {
-    tcpState.textContent = event.detail;
-    return;
-  }
-
-  if (event.type === "session" && event.phase === "complete") {
-    tcpState.textContent = event.detail;
+  if (event.type === "session" && (event.phase === "start" || event.phase === "complete")) {
+    demoState.textContent = event.detail;
     return;
   }
 
   if (event.label) {
-    tcpState.textContent = `${prettifyType(event.type)}: ${event.label}`;
+    demoState.textContent = `${prettifyType(event.type)}: ${event.label}`;
   } else if (event.detail) {
-    tcpState.textContent = event.detail;
+    demoState.textContent = event.detail;
   }
 }
 
 function animatePacket(event) {
-  if (!event.from || !event.to) return;
-  if (event.protocol !== "TCP") return;
-  const scene = tcpScene;
-  const layer = scene.querySelector(".packet-layer");
-  if (!layer) return;
-  const fromNode = scene.querySelector(`.node[data-side="${event.from}"]`);
-  const toNode = scene.querySelector(`.node[data-side="${event.to}"]`);
-  if (!fromNode || !toNode) return;
+  if (!event.from || !event.to) {
+    return;
+  }
+  if (event.protocol !== demoProtocol) {
+    return;
+  }
+  if (!demoScene) {
+    return;
+  }
+
+  const layer = demoScene.querySelector(".packet-layer");
+  if (!layer) {
+    return;
+  }
+
+  const fromNode = demoScene.querySelector(`.node[data-side="${event.from}"]`);
+  const toNode = demoScene.querySelector(`.node[data-side="${event.to}"]`);
+  if (!fromNode || !toNode) {
+    return;
+  }
 
   const packet = document.createElement("div");
   packet.className = `packet ${event.protocol.toLowerCase()}`;
@@ -77,7 +105,7 @@ function animatePacket(event) {
 
   layer.appendChild(packet);
 
-  const sceneRect = scene.getBoundingClientRect();
+  const sceneRect = demoScene.getBoundingClientRect();
   const fromRect = fromNode.getBoundingClientRect();
   const toRect = toNode.getBoundingClientRect();
   const packetWidth = packet.offsetWidth;
@@ -93,35 +121,41 @@ function animatePacket(event) {
   });
 }
 
-function setPending(button, pending, label = "Working...") {
+function setPending(button, pending, label = "처리 중...") {
   button.textContent = pending ? label : button.dataset.label;
 }
 
-function setTcpRunning(running) {
+function setDemoRunning(running) {
   protocolControls.running = running;
   protocolControls.next.disabled = !running;
 }
 
 async function startDemo() {
-  setPending(protocolControls.start, true, "Starting...");
+  setPending(protocolControls.start, true, "시작 중...");
   protocolControls.start.disabled = true;
   protocolControls.next.disabled = true;
 
   try {
-    const response = await fetch("/demo/tcp/start", { method: "POST" });
+    const response = await fetch(`/demo/${demoPath}/start`, { method: "POST" });
     if (!response.ok) {
-      throw new Error("Failed to start TCP demo");
+      throw new Error(`${demoProtocol} 데모를 시작하지 못했다.`);
     }
-    setTcpRunning(true);
+    const data = await response.json();
+    for (const event of data.events || []) {
+      addTimelineItem(event);
+      updateState(event);
+      animatePacket(event);
+    }
+    setDemoRunning(true);
   } catch (error) {
     addTimelineItem({
-      protocol: "TCP",
+      protocol: demoProtocol,
       type: "error",
       at: new Date().toISOString(),
-      title: "TCP demo failed",
+      title: `${demoProtocol} 데모 실행 실패`,
       detail: error.message,
     });
-    setTcpRunning(false);
+    setDemoRunning(false);
   } finally {
     window.setTimeout(() => {
       setPending(protocolControls.start, false);
@@ -131,67 +165,48 @@ async function startDemo() {
 }
 
 async function nextStep() {
-  setPending(protocolControls.next, true, "Advancing...");
+  setPending(protocolControls.next, true, "진행 중...");
   protocolControls.next.disabled = true;
 
   try {
-    const response = await fetch("/demo/tcp/next", { method: "POST" });
+    const response = await fetch(`/demo/${demoPath}/next`, { method: "POST" });
     if (!response.ok) {
-      throw new Error("Failed to advance TCP demo");
+      throw new Error(`${demoProtocol} 데모를 다음 단계로 진행하지 못했다.`);
     }
     const data = await response.json();
+    for (const event of data.events || []) {
+      addTimelineItem(event);
+      updateState(event);
+      animatePacket(event);
+    }
     if (data.completed) {
-      setTcpRunning(false);
+      setDemoRunning(false);
     } else {
       protocolControls.next.disabled = false;
     }
   } catch (error) {
     addTimelineItem({
-      protocol: "TCP",
+      protocol: demoProtocol,
       type: "error",
       at: new Date().toISOString(),
-      title: "TCP step failed",
+      title: `${demoProtocol} 단계 진행 실패`,
       detail: error.message,
     });
-    setTcpRunning(false);
+    setDemoRunning(false);
   } finally {
     setPending(protocolControls.next, false);
     protocolControls.next.disabled = !protocolControls.running;
   }
 }
 
-startTcpButton.dataset.label = startTcpButton.textContent;
-nextTcpButton.dataset.label = nextTcpButton.textContent;
+startDemoButton.dataset.label = startDemoButton.textContent;
+nextDemoButton.dataset.label = nextDemoButton.textContent;
 
-startTcpButton.addEventListener("click", () => startDemo());
-nextTcpButton.addEventListener("click", () => nextStep());
+startDemoButton.addEventListener("click", () => startDemo());
+nextDemoButton.addEventListener("click", () => nextStep());
 
 clearLogButton.addEventListener("click", () => {
   timeline.innerHTML = "";
-  tcpState.textContent = "Idle";
-  setTcpRunning(false);
+  demoState.textContent = "대기 중";
+  setDemoRunning(false);
 });
-
-const eventSource = new EventSource("/events");
-eventSource.onmessage = (message) => {
-  const event = JSON.parse(message.data);
-  addTimelineItem(event);
-  if (event.protocol === "TCP") {
-    updateState(event);
-  }
-  animatePacket(event);
-
-  if (event.protocol === "TCP" && event.controls) {
-    setTcpRunning(Boolean(event.controls.canAdvance) && !event.controls.completed);
-  }
-};
-
-eventSource.onerror = () => {
-  addTimelineItem({
-    protocol: "SYSTEM",
-    type: "error",
-    at: new Date().toISOString(),
-    title: "Event stream disconnected",
-    detail: "Refresh the page if live updates stop arriving.",
-  });
-};
