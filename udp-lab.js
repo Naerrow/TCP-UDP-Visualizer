@@ -8,6 +8,7 @@ const LOG_DIR = path.join(__dirname, "logs");
 const LOG_FILE = path.join(LOG_DIR, "udp-lab.ndjson");
 const MAX_MEMORY_LOGS = 300;
 
+// 실험실이 시작되기 전에 로그 디렉터리와 줄 단위 제이슨 로그 파일이 있는지 보장한다.
 function ensureLogStore() {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   if (!fs.existsSync(LOG_FILE)) {
@@ -15,6 +16,7 @@ function ensureLogStore() {
   }
 }
 
+// 호스트 값을 정리하고, 비어 있으면 로컬 호스트로 대체한다.
 function normalizeHost(value) {
   if (typeof value !== "string") {
     return DEFAULT_HOST;
@@ -24,6 +26,7 @@ function normalizeHost(value) {
   return trimmed || DEFAULT_HOST;
 }
 
+// UDP 포트 번호를 검증하고, 값이 없으면 기본 포트를 사용한다.
 function normalizePort(value, fallback = DEFAULT_PORT) {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -37,6 +40,7 @@ function normalizePort(value, fallback = DEFAULT_PORT) {
   return port;
 }
 
+// 클라이언트 바인드용 포트를 검증하며, 0도 허용한다.
 function normalizeBindPort(value, fallback = 0) {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -50,6 +54,7 @@ function normalizeBindPort(value, fallback = 0) {
   return port;
 }
 
+// 전송 대상 포트를 정한다. 직접 지정값이 없으면 상황에 맞는 기본값을 쓴다.
 function resolveTargetPort(value, fallback) {
   if (value === undefined || value === null || value === "") {
     if (fallback) {
@@ -61,10 +66,12 @@ function resolveTargetPort(value, fallback) {
   return normalizePort(value);
 }
 
+// 로그와 소켓에 쓸 읽기 쉬운 식별자를 만든다.
 function makeId(prefix, sequence) {
   return `${prefix}-${Date.now()}-${sequence}`;
 }
 
+// 버퍼를 로그에 보여 주기 쉬운 값들로 변환한다.
 function bufferFields(buffer) {
   const utf8 = buffer.toString("utf8");
   return {
@@ -74,6 +81,7 @@ function bufferFields(buffer) {
   };
 }
 
+// UDP 소켓의 현재 로컬 주소와 포트를 읽어 온다.
 function localSocketAddress(socket) {
   try {
     const address = socket.address();
@@ -89,6 +97,7 @@ function localSocketAddress(socket) {
   }
 }
 
+// 내부에서 바뀌는 소켓 정보를 안전한 상태 정보로 바꾼다.
 function serializeSocket(info) {
   return {
     id: info.id,
@@ -109,6 +118,7 @@ function serializeSocket(info) {
   };
 }
 
+// UDP 소켓을 지정한 호스트와 포트에 바인드하고 완료를 기다린다.
 function bindSocket(socket, port, host) {
   return new Promise((resolve, reject) => {
     const onError = (error) => {
@@ -125,6 +135,7 @@ function bindSocket(socket, port, host) {
   });
 }
 
+// UDP 데이터그램 하나를 전송하고 완료를 기다린다.
 function sendDatagram(socket, payload, port, host) {
   return new Promise((resolve, reject) => {
     socket.send(payload, port, host, (error) => {
@@ -137,6 +148,7 @@ function sendDatagram(socket, payload, port, host) {
   });
 }
 
+// UDP 소켓을 닫고 종료 이벤트가 끝날 때까지 기다린다.
 function closeSocket(socket) {
   return new Promise((resolve) => {
     if (!socket) {
@@ -178,6 +190,7 @@ class UdpLabManager {
     this.streams = new Set();
   }
 
+  // 실험실 이벤트 하나를 메모리, 디스크, 서버 전송 이벤트에 함께 기록한다.
   emit(event) {
     const record = {
       id: makeId("udp-lab", ++this.logSequence),
@@ -197,6 +210,7 @@ class UdpLabManager {
     return record;
   }
 
+  // 현재 실험실을 보고 있는 모든 브라우저에 서버 전송 이벤트 내용을 보낸다.
   broadcast(payload) {
     const chunk = `data: ${JSON.stringify(payload)}\n\n`;
 
@@ -205,10 +219,12 @@ class UdpLabManager {
     }
   }
 
+  // 소켓이나 서버 상태가 바뀐 뒤 최신 전체 상태를 방송한다.
   pushState() {
     this.broadcast({ type: "state", state: this.getState() });
   }
 
+  // 현재 실험실 상태 정보를 반환한다. 서버 바인드 상태, 소켓 목록, 최근 로그가 들어 있다.
   getState() {
     const sockets = Array.from(this.socketEntries.values())
       .map((entry) => serializeSocket(entry.info))
@@ -229,6 +245,7 @@ class UdpLabManager {
     };
   }
 
+  // 브라우저가 실험실 변화를 실시간으로 받을 수 있도록 서버 전송 이벤트 스트림을 연다.
   registerStream(req, res) {
     res.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
@@ -244,6 +261,7 @@ class UdpLabManager {
     });
   }
 
+  // 실험실에서 UDP 소켓 하나를 추적할 때 쓰는 메타데이터 객체를 만든다.
   createSocketInfo(role, label) {
     return {
       id: makeId("udp-sock", ++this.socketSequence),
@@ -264,12 +282,14 @@ class UdpLabManager {
     };
   }
 
+  // 실제 소켓의 최신 로컬 주소 정보를 메타데이터에 반영한다.
   syncSocketInfo(info, socket) {
     const local = localSocketAddress(socket);
     info.localAddress = local.localAddress;
     info.localPort = local.localPort;
   }
 
+  // 소켓 하나에 리스너를 붙여 수신, 종료, 오류를 모두 로그와 상태에 반영하게 한다.
   attachSocket(socket, info) {
     const entry = {
       info,
@@ -279,6 +299,7 @@ class UdpLabManager {
     this.socketEntries.set(info.id, entry);
     this.syncSocketInfo(info, socket);
 
+    // 데이터그램 하나를 받으면 바이트 수, 패킷 수, 최근 상대 주소를 갱신한다.
     socket.on("message", (buffer, rinfo) => {
       info.status = "open";
       info.bytesRead += buffer.length;
@@ -304,6 +325,7 @@ class UdpLabManager {
       this.pushState();
     });
 
+    // 소켓이 닫히면 닫힘 시각과 상태를 기록한다.
     socket.on("close", () => {
       info.status = "closed";
       info.closedAt = new Date().toISOString();
@@ -330,6 +352,7 @@ class UdpLabManager {
       this.pushState();
     });
 
+    // 오류가 나면 오류 상태와 메시지를 기록한다.
     socket.on("error", (error) => {
       info.status = "error";
       info.lastError = error.message;
@@ -356,6 +379,7 @@ class UdpLabManager {
     return entry;
   }
 
+  // 실험실 페이지에서 사용하는 실제 UDP 서버 소켓을 시작한다.
   async startServer(options = {}) {
     if (this.serverSocketId && this.socketEntries.get(this.serverSocketId)?.socket) {
       throw new Error("UDP 실험실 서버가 이미 실행 중이다.");
@@ -364,12 +388,15 @@ class UdpLabManager {
     this.host = normalizeHost(options.host);
     this.port = normalizePort(options.port, this.port);
 
+    // 서버 소켓을 만들고 추적 대상에 등록한다.
     const socket = dgram.createSocket("udp4");
     const info = this.createSocketInfo("server-socket", "서버 소켓");
-    const entry = this.attachSocket(socket, info);
+    this.attachSocket(socket, info);
 
+    // 지정한 포트에 실제로 바인드될 때까지 기다린다.
     await bindSocket(socket, this.port, this.host);
 
+    // 바인드가 끝나면 열림 상태와 시작 시각을 기록한다.
     info.status = "open";
     info.openedAt = new Date().toISOString();
     this.syncSocketInfo(info, socket);
@@ -393,6 +420,7 @@ class UdpLabManager {
     return this.getState();
   }
 
+  // 열려 있는 UDP 소켓들을 모두 닫고 서버 상태를 정리한다.
   async stopServer() {
     const openEntries = Array.from(this.socketEntries.values()).filter(
       (entry) => entry.socket,
@@ -414,6 +442,7 @@ class UdpLabManager {
     return this.getState();
   }
 
+  // 관리형 UDP 클라이언트 소켓을 만들고 지정한 호스트와 포트에 바인드한다.
   async bindManagedClient(options = {}) {
     const host = normalizeHost(options.host || this.host);
     const port = normalizeBindPort(options.port, 0);
@@ -421,12 +450,15 @@ class UdpLabManager {
       ? options.label.trim()
       : "클라이언트";
 
+    // 클라이언트 소켓을 만들고 추적 대상에 등록한다.
     const socket = dgram.createSocket("udp4");
     const info = this.createSocketInfo("managed-client", label);
     this.attachSocket(socket, info);
 
+    // 0 포트가 들어오면 운영체제가 비어 있는 임시 포트를 골라 준다.
     await bindSocket(socket, port, host);
 
+    // 바인드가 끝난 뒤 열린 소켓 상태로 표시한다.
     info.status = "open";
     info.openedAt = new Date().toISOString();
     this.syncSocketInfo(info, socket);
@@ -449,23 +481,28 @@ class UdpLabManager {
     return this.getState();
   }
 
+  // 선택한 UDP 소켓 하나에서 데이터그램을 전송한다.
   async send(socketId, text, target = {}) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket) {
       throw new Error("선택한 소켓은 전송 가능한 상태가 아니다.");
     }
 
+    // 문자열 입력을 실제 전송할 바이트 버퍼로 바꾼다.
     const payload = Buffer.from(typeof text === "string" ? text : String(text || ""), "utf8");
     if (payload.length === 0) {
       throw new Error("메시지는 비워 둘 수 없다.");
     }
 
+    // 대상 주소와 포트를 정한다. 값이 없으면 최근 상대나 기본 서버 포트를 사용한다.
     const host = normalizeHost(target.host || entry.info.peerAddress || this.host);
     const fallbackPort = entry.info.role === "managed-client" ? this.port : entry.info.peerPort;
     const port = resolveTargetPort(target.port, fallbackPort);
 
+    // 실제 데이터그램 전송이 끝날 때까지 기다린다.
     await sendDatagram(entry.socket, payload, port, host);
 
+    // 전송 후에는 최근 상대, 바이트 수, 패킷 수를 갱신한다.
     entry.info.status = "open";
     entry.info.bytesWritten += payload.length;
     entry.info.packetsWritten += 1;
@@ -492,6 +529,7 @@ class UdpLabManager {
     return this.getState();
   }
 
+  // 선택한 UDP 소켓 하나를 닫고 최신 상태를 반환한다.
   async closeSocket(socketId) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket) {
@@ -503,6 +541,7 @@ class UdpLabManager {
   }
 }
 
+// 서버 시작 시점에 UDP 실험실 매니저를 한 번 생성할 때 쓰는 생성 함수다.
 function createUdpLabManager() {
   return new UdpLabManager();
 }

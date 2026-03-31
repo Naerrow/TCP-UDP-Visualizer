@@ -26,7 +26,7 @@ function normalizeHost(value) {
   return trimmed || DEFAULT_HOST;
 }
 
-// 티시피 포트 번호를 검증하고, 값이 없으면 기본 포트를 사용한다.
+// TCP 포트 번호를 검증하고, 값이 없으면 기본 포트를 사용한다.
 function normalizePort(value, fallback = DEFAULT_PORT) {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -55,7 +55,7 @@ function bufferFields(buffer) {
   };
 }
 
-// 티시피 소켓에서 로컬과 원격 주소 정보를 읽어 온다.
+// TCP 소켓에서 로컬과 원격 주소 정보를 읽어 온다.
 function socketAddresses(socket) {
   return {
     localAddress: socket.localAddress || null,
@@ -175,7 +175,7 @@ class TcpLabManager {
     });
   }
 
-  // 실험실에서 티시피 소켓 하나를 추적할 때 쓰는 메타데이터 객체를 만든다.
+  // 실험실에서 TCP 소켓 하나를 추적할 때 쓰는 메타데이터 객체를 만든다.
   createSocketInfo(role, label) {
     return {
       id: makeId("sock", ++this.socketSequence),
@@ -290,7 +290,7 @@ class TcpLabManager {
     return entry;
   }
 
-  // 실험실 페이지에서 사용하는 실제 티시피 리스너를 시작한다.
+  // 실험실 페이지에서 사용하는 실제 TCP 리스너를 시작한다.
   async startServer(options = {}) {
     if (this.server) {
       throw new Error("TCP 실험실 서버가 이미 실행 중이다.");
@@ -398,7 +398,7 @@ class TcpLabManager {
     return this.getState();
   }
 
-  // 관리형 클라이언트 소켓을 만들고 선택한 티시피 리스너에 연결한다.
+  // 관리형 클라이언트 소켓을 만들고 선택한 TCP 리스너에 연결한다.
   async connectManagedClient(options = {}) {
     const host = normalizeHost(options.host || this.host);
     const port = normalizePort(options.port, this.port);
@@ -497,7 +497,7 @@ class TcpLabManager {
     return this.getState();
   }
 
-  // 선택한 소켓 하나에 정상 종료 메서드를 호출해 티시피 종료를 시작한다.
+  // 선택한 소켓 하나에 정상 종료 메서드를 호출해 TCP 종료를 시작한다.
   async end(socketId) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket || entry.socket.destroyed) {

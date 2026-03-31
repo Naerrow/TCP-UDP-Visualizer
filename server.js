@@ -124,7 +124,7 @@ function closeTcpServer(server) {
   return new Promise((resolve) => server.close(resolve));
 }
 
-// 유디피 단계형 데모에서 공통으로 쓰는 바인드 보조 함수다.
+// UDP 단계형 데모에서 공통으로 쓰는 바인드 보조 함수다.
 function bindUdpSocket(socket, port, host) {
   return new Promise((resolve, reject) => {
     const onError = (error) => {
@@ -141,7 +141,7 @@ function bindUdpSocket(socket, port, host) {
   });
 }
 
-// 유디피 단계형 데모에서 공통으로 쓰는 전송 보조 함수다.
+// UDP 단계형 데모에서 공통으로 쓰는 전송 보조 함수다.
 function sendUdpDatagram(socket, payload, port, host) {
   return new Promise((resolve, reject) => {
     socket.send(payload, port, host, (error) => {
@@ -154,7 +154,7 @@ function sendUdpDatagram(socket, payload, port, host) {
   });
 }
 
-// 유디피 단계형 데모에서 공통으로 쓰는 종료 보조 함수다.
+// UDP 단계형 데모에서 공통으로 쓰는 종료 보조 함수다.
 function closeUdpSocket(socket) {
   return new Promise((resolve) => {
     if (!socket) {
@@ -223,7 +223,7 @@ class TcpSession {
     return events;
   }
 
-  // 실제 티시피 서버와 이후 단계에서 기다릴 프로미스들을 미리 준비한다.
+  // 실제 TCP 서버와 이후 단계에서 기다릴 프로미스들을 미리 준비한다.
   async start() {
     // 나중에 서버 쪽에서 새 연결을 실제로 수락했는지 기다리기 위한 프로미스다.
     this.pendingAccepted = new Promise((resolve) => {
@@ -238,7 +238,7 @@ class TcpSession {
       this.resolveServerClose = resolve;
     });
 
-    // 데모에 사용할 실제 티시피 서버를 만든다.
+    // 데모에 사용할 실제 TCP 서버를 만든다.
     this.server = net.createServer((socket) => {
       // 서버가 이번 연결 전용 소켓을 하나 받으면 따로 저장해 둔다.
       this.serverSocket = socket;
@@ -334,13 +334,13 @@ class TcpSession {
     });
   }
 
-  // 티시피 학습용 흐름을 한 단계씩 진행한다.
+  // TCP 학습용 흐름을 한 단계씩 진행한다.
   async next() {
     if (this.completed) {
       return { completed: true };
     }
 
-    // 각 분기는 화면에 보이는 티시피 타임라인의 한 단계에 대응한다.
+    // 각 분기는 화면에 보이는 TCP 타임라인의 한 단계에 대응한다.
     switch (this.stepIndex) {
       case 0:
         this.stepIndex += 1;
@@ -478,7 +478,7 @@ class TcpSession {
           "MSG2",
         ];
 
-        // 티시피가 메시지 큐가 아니라 바이트 흐름임을 보여 주려고 연속 전송을 수행한다.
+        // TCP가 메시지 큐가 아니라 바이트 흐름임을 보여 주려고 연속 전송을 수행한다.
         this.clientSocket.write(this.clientWrites[0]);
         this.clientSocket.write(this.clientWrites[1]);
         await wait(80);
@@ -695,7 +695,7 @@ class TcpSession {
     }
   }
 
-  // 현재 티시피 데모 세션에서 사용한 소켓과 리스너를 모두 정리한다.
+  // 현재 TCP 데모 세션에서 사용한 소켓과 리스너를 모두 정리한다.
   async cleanup() {
     if (this.clientSocket && !this.clientSocket.destroyed) {
       this.clientSocket.destroy();
@@ -783,15 +783,20 @@ class UdpSession {
     });
   }
 
-  // 유디피 학습용 데모에 쓰일 서버 쪽 소켓을 준비한다.
+  // UDP 학습용 데모에 쓰일 서버 쪽 소켓을 준비한다.
   async start() {
+    // 데모에서 사용할 실제 UDP 서버 소켓을 만든다.
     this.serverSocket = dgram.createSocket("udp4");
+
+    // 서버 쪽으로 들어오는 데이터그램은 모두 별도 저장소에 쌓아 둔다.
     this.serverSocket.on("message", (buffer, rinfo) => {
       this.observeDatagram("server", buffer, rinfo);
     });
 
+    // 지정한 호스트와 포트에 서버 소켓을 실제로 바인드한다.
     await bindUdpSocket(this.serverSocket, UDP_PORT, HOST);
 
+    // 첫 번째 상태 이벤트: 서버 소켓이 바인드되었음을 화면에 알린다.
     this.emit({
       protocol: this.protocol,
       session: this.session,
@@ -805,6 +810,7 @@ class UdpSession {
       },
     });
 
+    // 두 번째 이벤트: 지금부터 UDP 단계형 데모가 시작되었음을 알린다.
     this.emit({
       protocol: this.protocol,
       session: this.session,
@@ -818,6 +824,7 @@ class UdpSession {
       },
     });
 
+    // 세 번째 상태 이벤트: 서버가 첫 데이터그램을 기다리는 중임을 알린다.
     this.emit({
       protocol: this.protocol,
       session: this.session,
@@ -832,20 +839,25 @@ class UdpSession {
     });
   }
 
-  // 유디피 학습용 흐름을 한 단계씩 진행한다.
+  // UDP 학습용 흐름을 한 단계씩 진행한다.
   async next() {
     if (this.completed) {
       return { completed: true };
     }
 
+    // 각 분기는 화면에 보이는 UDP 타임라인의 한 단계에 대응한다.
     switch (this.stepIndex) {
       case 0: {
         this.stepIndex += 1;
+        // 클라이언트 역할의 실제 UDP 소켓을 만든다.
         this.clientSocket = dgram.createSocket("udp4");
+
+        // 클라이언트 쪽으로 들어오는 응답 데이터그램을 따로 저장해 둔다.
         this.clientSocket.on("message", (buffer, rinfo) => {
           this.observeDatagram("client", buffer, rinfo);
         });
 
+        // 임시 포트에 바인드해서 송신 가능한 상태로 만든다.
         await bindUdpSocket(this.clientSocket, 0, HOST);
         this.clientAddress = this.clientSocket.address();
 
@@ -866,6 +878,7 @@ class UdpSession {
 
       case 1:
         this.stepIndex += 1;
+        // UDP에는 연결 수립 절차와 연결 수락 단계가 없다는 점을 설명한다.
         this.emit({
           protocol: this.protocol,
           session: this.session,
@@ -883,6 +896,8 @@ class UdpSession {
       case 2: {
         this.stepIndex += 1;
         const message = "MSG1";
+
+        // 첫 번째 데이터그램을 서버 포트로 전송한다.
         await sendUdpDatagram(this.clientSocket, message, UDP_PORT, HOST);
         await wait(40);
         this.emit({
@@ -905,6 +920,8 @@ class UdpSession {
 
       case 3: {
         this.stepIndex += 1;
+
+        // 서버가 첫 번째 데이터그램을 실제로 받을 때까지 기다린다.
         const datagram = await this.waitForDatagram("server", 0);
         this.emit({
           protocol: this.protocol,
@@ -925,6 +942,8 @@ class UdpSession {
       case 4: {
         this.stepIndex += 1;
         const message = "MSG2";
+
+        // 두 번째 데이터그램도 같은 서버 포트로 전송한다.
         await sendUdpDatagram(this.clientSocket, message, UDP_PORT, HOST);
         await wait(40);
         this.emit({
@@ -947,6 +966,8 @@ class UdpSession {
 
       case 5: {
         this.stepIndex += 1;
+
+        // 서버가 두 번째 데이터그램을 실제로 받을 때까지 기다린다.
         const datagram = await this.waitForDatagram("server", 1);
         this.emit({
           protocol: this.protocol,
@@ -966,6 +987,7 @@ class UdpSession {
 
       case 6:
         this.stepIndex += 1;
+        // UDP는 데이터그램 경계를 유지한다는 점을 요약해서 보여 준다.
         this.emit({
           protocol: this.protocol,
           session: this.session,
@@ -982,8 +1004,12 @@ class UdpSession {
 
       case 7: {
         this.stepIndex += 1;
+
+        // 서버가 처음 받은 발신지 정보를 꺼내 응답 대상 주소로 사용한다.
         const target = this.serverMessages[0];
         const responseMessage = `UDP RESPONSE: ${this.serverMessages.length} datagrams`;
+
+        // 서버 소켓에서 클라이언트 쪽으로 응답 데이터그램을 보낸다.
         await sendUdpDatagram(this.serverSocket, responseMessage, target.port, target.address);
         await wait(40);
         this.emit({
@@ -1005,6 +1031,8 @@ class UdpSession {
 
       case 8: {
         this.stepIndex += 1;
+
+        // 클라이언트가 서버 응답을 실제로 받을 때까지 기다린다.
         const datagram = await this.waitForDatagram("client", 0);
         this.emit({
           protocol: this.protocol,
@@ -1024,6 +1052,8 @@ class UdpSession {
 
       case 9:
         this.stepIndex += 1;
+
+        // UDP는 종료 핸드셰이크가 없으므로 소켓만 닫고 끝낸다.
         await this.cleanup();
         this.emit({
           protocol: this.protocol,
@@ -1041,6 +1071,7 @@ class UdpSession {
 
       case 10:
         this.stepIndex += 1;
+        // 전체 UDP 데모가 끝났음을 알리고 완료 상태로 표시한다.
         this.emit({
           protocol: this.protocol,
           session: this.session,
@@ -1061,7 +1092,7 @@ class UdpSession {
     }
   }
 
-  // 유디피 데모 세션에서 만든 양쪽 소켓을 모두 정리한다.
+  // UDP 데모 세션에서 만든 양쪽 소켓을 모두 정리한다.
   async cleanup() {
     if (this.clientSocket) {
       await closeUdpSocket(this.clientSocket);
@@ -1074,7 +1105,7 @@ class UdpSession {
   }
 }
 
-// 새 티시피 데모를 시작하기 전에 이전 세션이 남아 있으면 정리한다.
+// 새 TCP 데모를 시작하기 전에 이전 세션이 남아 있으면 정리한다.
 async function cleanupTcpSession() {
   if (tcpSession) {
     await tcpSession.cleanup();
@@ -1082,7 +1113,7 @@ async function cleanupTcpSession() {
   }
 }
 
-// 새 유디피 데모를 시작하기 전에 이전 세션이 남아 있으면 정리한다.
+// 새 UDP 데모를 시작하기 전에 이전 세션이 남아 있으면 정리한다.
 async function cleanupUdpSession() {
   if (udpSession) {
     await udpSession.cleanup();
@@ -1090,7 +1121,7 @@ async function cleanupUdpSession() {
   }
 }
 
-// 새 티시피 학습용 데모를 시작하고 초기 타임라인 이벤트를 반환한다.
+// 새 TCP 학습용 데모를 시작하고 초기 타임라인 이벤트를 반환한다.
 async function handleDemoStart(req, res) {
   try {
     await cleanupTcpSession();
@@ -1108,7 +1139,7 @@ async function handleDemoStart(req, res) {
   }
 }
 
-// 티시피 학습용 데모를 다음 단계로 진행한다.
+// TCP 학습용 데모를 다음 단계로 진행한다.
 async function handleDemoNext(req, res) {
   try {
     if (!tcpSession) {
@@ -1147,7 +1178,7 @@ async function handleDemoNext(req, res) {
   }
 }
 
-// 새 유디피 학습용 데모를 시작하고 초기 타임라인 이벤트를 반환한다.
+// 새 UDP 학습용 데모를 시작하고 초기 타임라인 이벤트를 반환한다.
 async function handleUdpDemoStart(req, res) {
   try {
     await cleanupUdpSession();
@@ -1165,7 +1196,7 @@ async function handleUdpDemoStart(req, res) {
   }
 }
 
-// 유디피 학습용 데모를 다음 단계로 진행한다.
+// UDP 학습용 데모를 다음 단계로 진행한다.
 async function handleUdpDemoNext(req, res) {
   try {
     if (!udpSession) {
@@ -1204,7 +1235,7 @@ async function handleUdpDemoNext(req, res) {
   }
 }
 
-// 실제 티시피 실험실의 최신 상태 정보를 반환한다.
+// 실제 TCP 실험실의 최신 상태 정보를 반환한다.
 function respondLabState(res, status = 200) {
   respondJson(res, status, {
     ok: true,
@@ -1212,7 +1243,7 @@ function respondLabState(res, status = 200) {
   });
 }
 
-// 실제 유디피 실험실의 최신 상태 정보를 반환한다.
+// 실제 UDP 실험실의 최신 상태 정보를 반환한다.
 function respondUdpLabState(res, status = 200) {
   respondJson(res, status, {
     ok: true,
@@ -1220,7 +1251,7 @@ function respondUdpLabState(res, status = 200) {
   });
 }
 
-// 실험실 페이지에서 쓸 실제 티시피 리스너를 연다.
+// 실험실 페이지에서 쓸 실제 TCP 리스너를 연다.
 async function handleLabServerStart(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1231,7 +1262,7 @@ async function handleLabServerStart(req, res) {
   }
 }
 
-// 실제 티시피 리스너를 중지하고 활성 소켓도 함께 정리한다.
+// 실제 TCP 리스너를 중지하고 활성 소켓도 함께 정리한다.
 async function handleLabServerStop(req, res) {
   try {
     await tcpLab.stopServer();
@@ -1241,7 +1272,7 @@ async function handleLabServerStop(req, res) {
   }
 }
 
-// 서버 프로세스 안에서 관리형 실제 티시피 클라이언트 소켓을 만든다.
+// 서버 프로세스 안에서 관리형 실제 TCP 클라이언트 소켓을 만든다.
 async function handleLabClientConnect(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1252,7 +1283,7 @@ async function handleLabClientConnect(req, res) {
   }
 }
 
-// 선택한 실제 티시피 소켓 하나로 애플리케이션 데이터를 보낸다.
+// 선택한 실제 TCP 소켓 하나로 애플리케이션 데이터를 보낸다.
 async function handleLabSocketSend(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1263,7 +1294,7 @@ async function handleLabSocketSend(req, res) {
   }
 }
 
-// 선택한 소켓 하나에 대해 정상적인 티시피 종료를 시작한다.
+// 선택한 소켓 하나에 대해 정상적인 TCP 종료를 시작한다.
 async function handleLabSocketEnd(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1274,7 +1305,7 @@ async function handleLabSocketEnd(req, res) {
   }
 }
 
-// 선택한 티시피 소켓 하나를 강제로 끊는다.
+// 선택한 TCP 소켓 하나를 강제로 끊는다.
 async function handleLabSocketDestroy(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1285,7 +1316,7 @@ async function handleLabSocketDestroy(req, res) {
   }
 }
 
-// 실험실 페이지에서 쓸 실제 유디피 서버 소켓을 연다.
+// 실험실 페이지에서 쓸 실제 UDP 서버 소켓을 연다.
 async function handleUdpLabServerStart(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1296,7 +1327,7 @@ async function handleUdpLabServerStart(req, res) {
   }
 }
 
-// 실제 유디피 서버 소켓을 중지하고 활성 유디피 소켓도 함께 정리한다.
+// 실제 UDP 서버 소켓을 중지하고 활성 UDP 소켓도 함께 정리한다.
 async function handleUdpLabServerStop(req, res) {
   try {
     await udpLab.stopServer();
@@ -1306,7 +1337,7 @@ async function handleUdpLabServerStop(req, res) {
   }
 }
 
-// 서버 프로세스 안에서 관리형 실제 유디피 클라이언트 소켓을 만든다.
+// 서버 프로세스 안에서 관리형 실제 UDP 클라이언트 소켓을 만든다.
 async function handleUdpLabClientBind(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1317,7 +1348,7 @@ async function handleUdpLabClientBind(req, res) {
   }
 }
 
-// 선택한 관리형 소켓 하나에서 유디피 데이터그램 하나를 보낸다.
+// 선택한 관리형 소켓 하나에서 UDP 데이터그램 하나를 보낸다.
 async function handleUdpLabSocketSend(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1331,7 +1362,7 @@ async function handleUdpLabSocketSend(req, res) {
   }
 }
 
-// 선택한 유디피 소켓 하나를 닫는다.
+// 선택한 UDP 소켓 하나를 닫는다.
 async function handleUdpLabSocketClose(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -1354,43 +1385,43 @@ const server = http.createServer((req, res) => {
   // 모든 분기 비교에서 경로 이름을 쓰기 위해 요청 주소를 한 번만 해석한다.
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  // 새 티시피 단계형 데모 세션을 시작한다.
+  // 새 TCP 단계형 데모 세션을 시작한다.
   if (req.method === "POST" && url.pathname === "/demo/tcp/start") {
     handleDemoStart(req, res);
     return;
   }
 
-  // 티시피 단계형 데모를 다음 단계로 진행한다.
+  // TCP 단계형 데모를 다음 단계로 진행한다.
   if (req.method === "POST" && url.pathname === "/demo/tcp/next") {
     handleDemoNext(req, res);
     return;
   }
 
-  // 새 유디피 단계형 데모 세션을 시작한다.
+  // 새 UDP 단계형 데모 세션을 시작한다.
   if (req.method === "POST" && url.pathname === "/demo/udp/start") {
     handleUdpDemoStart(req, res);
     return;
   }
 
-  // 유디피 단계형 데모를 다음 단계로 진행한다.
+  // UDP 단계형 데모를 다음 단계로 진행한다.
   if (req.method === "POST" && url.pathname === "/demo/udp/next") {
     handleUdpDemoNext(req, res);
     return;
   }
 
-  // 실제 티시피 실험실의 최신 상태 정보를 반환한다.
+  // 실제 TCP 실험실의 최신 상태 정보를 반환한다.
   if (req.method === "GET" && url.pathname === "/lab/tcp/state") {
     respondLabState(res);
     return;
   }
 
-  // 브라우저가 티시피 실험실 변화를 실시간으로 받도록 서버 전송 이벤트 스트림을 연다.
+  // 브라우저가 TCP 실험실 변화를 실시간으로 받도록 서버 전송 이벤트 스트림을 연다.
   if (req.method === "GET" && url.pathname === "/lab/tcp/stream") {
     tcpLab.registerStream(req, res);
     return;
   }
 
-  // 저장된 티시피 실험 로그 파일을 내려받는다.
+  // 저장된 TCP 실험 로그 파일을 내려받는다.
   if (req.method === "GET" && url.pathname === "/lab/tcp/logs/download") {
     serveLabLogFile(
       res,
@@ -1401,55 +1432,55 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 실험실 페이지에서 쓰는 실제 티시피 리스너를 시작한다.
+  // 실험실 페이지에서 쓰는 실제 TCP 리스너를 시작한다.
   if (req.method === "POST" && url.pathname === "/lab/tcp/server/start") {
     handleLabServerStart(req, res);
     return;
   }
 
-  // 실제 티시피 리스너를 중지하고 활성 실험실 소켓도 닫는다.
+  // 실제 TCP 리스너를 중지하고 활성 실험실 소켓도 닫는다.
   if (req.method === "POST" && url.pathname === "/lab/tcp/server/stop") {
     handleLabServerStop(req, res);
     return;
   }
 
-  // 서버 프로세스 안에서 관리형 티시피 클라이언트 소켓을 만들고 연결한다.
+  // 서버 프로세스 안에서 관리형 TCP 클라이언트 소켓을 만들고 연결한다.
   if (req.method === "POST" && url.pathname === "/lab/tcp/client/connect") {
     handleLabClientConnect(req, res);
     return;
   }
 
-  // 선택한 티시피 소켓 하나로 애플리케이션 데이터를 보낸다.
+  // 선택한 TCP 소켓 하나로 애플리케이션 데이터를 보낸다.
   if (req.method === "POST" && url.pathname === "/lab/tcp/socket/send") {
     handleLabSocketSend(req, res);
     return;
   }
 
-  // 선택한 티시피 소켓 하나에서 정상 종료를 시작한다.
+  // 선택한 TCP 소켓 하나에서 정상 종료를 시작한다.
   if (req.method === "POST" && url.pathname === "/lab/tcp/socket/end") {
     handleLabSocketEnd(req, res);
     return;
   }
 
-  // 선택한 티시피 소켓 하나를 강제로 끊는다.
+  // 선택한 TCP 소켓 하나를 강제로 끊는다.
   if (req.method === "POST" && url.pathname === "/lab/tcp/socket/destroy") {
     handleLabSocketDestroy(req, res);
     return;
   }
 
-  // 실제 유디피 실험실의 최신 상태 정보를 반환한다.
+  // 실제 UDP 실험실의 최신 상태 정보를 반환한다.
   if (req.method === "GET" && url.pathname === "/lab/udp/state") {
     respondUdpLabState(res);
     return;
   }
 
-  // 브라우저가 유디피 실험실 변화를 실시간으로 받도록 서버 전송 이벤트 스트림을 연다.
+  // 브라우저가 UDP 실험실 변화를 실시간으로 받도록 서버 전송 이벤트 스트림을 연다.
   if (req.method === "GET" && url.pathname === "/lab/udp/stream") {
     udpLab.registerStream(req, res);
     return;
   }
 
-  // 저장된 유디피 실험 로그 파일을 내려받는다.
+  // 저장된 UDP 실험 로그 파일을 내려받는다.
   if (req.method === "GET" && url.pathname === "/lab/udp/logs/download") {
     serveLabLogFile(
       res,
@@ -1460,31 +1491,31 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 실험실 페이지에서 쓰는 실제 유디피 서버 소켓을 시작한다.
+  // 실험실 페이지에서 쓰는 실제 UDP 서버 소켓을 시작한다.
   if (req.method === "POST" && url.pathname === "/lab/udp/server/start") {
     handleUdpLabServerStart(req, res);
     return;
   }
 
-  // 실제 유디피 서버 소켓을 중지하고 활성 실험실 소켓도 닫는다.
+  // 실제 UDP 서버 소켓을 중지하고 활성 실험실 소켓도 닫는다.
   if (req.method === "POST" && url.pathname === "/lab/udp/server/stop") {
     handleUdpLabServerStop(req, res);
     return;
   }
 
-  // 서버 프로세스 안에서 관리형 유디피 클라이언트 소켓을 만들고 바인드한다.
+  // 서버 프로세스 안에서 관리형 UDP 클라이언트 소켓을 만들고 바인드한다.
   if (req.method === "POST" && url.pathname === "/lab/udp/client/bind") {
     handleUdpLabClientBind(req, res);
     return;
   }
 
-  // 선택한 실험실 유디피 소켓 하나로 데이터그램 하나를 보낸다.
+  // 선택한 실험실 UDP 소켓 하나로 데이터그램 하나를 보낸다.
   if (req.method === "POST" && url.pathname === "/lab/udp/socket/send") {
     handleUdpLabSocketSend(req, res);
     return;
   }
 
-  // 선택한 유디피 소켓 하나를 닫는다.
+  // 선택한 UDP 소켓 하나를 닫는다.
   if (req.method === "POST" && url.pathname === "/lab/udp/socket/close") {
     handleUdpLabSocketClose(req, res);
     return;
