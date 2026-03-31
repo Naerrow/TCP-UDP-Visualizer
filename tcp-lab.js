@@ -8,6 +8,7 @@ const LOG_DIR = path.join(__dirname, "logs");
 const LOG_FILE = path.join(LOG_DIR, "tcp-lab.ndjson");
 const MAX_MEMORY_LOGS = 300;
 
+// 실험실이 시작되기 전에 로그 디렉터리와 줄 단위 제이슨 로그 파일이 있는지 보장한다.
 function ensureLogStore() {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   if (!fs.existsSync(LOG_FILE)) {
@@ -15,6 +16,7 @@ function ensureLogStore() {
   }
 }
 
+// 호스트 값을 정리하고, 비어 있으면 로컬 호스트로 대체한다.
 function normalizeHost(value) {
   if (typeof value !== "string") {
     return DEFAULT_HOST;
@@ -24,6 +26,7 @@ function normalizeHost(value) {
   return trimmed || DEFAULT_HOST;
 }
 
+// 티시피 포트 번호를 검증하고, 값이 없으면 기본 포트를 사용한다.
 function normalizePort(value, fallback = DEFAULT_PORT) {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -37,10 +40,12 @@ function normalizePort(value, fallback = DEFAULT_PORT) {
   return port;
 }
 
+// 로그와 소켓에 쓸 읽기 쉬운 식별자를 만든다.
 function makeId(prefix, sequence) {
   return `${prefix}-${Date.now()}-${sequence}`;
 }
 
+// 버퍼를 로그에 보여 주기 쉬운 값들로 변환한다.
 function bufferFields(buffer) {
   const utf8 = buffer.toString("utf8");
   return {
@@ -50,6 +55,7 @@ function bufferFields(buffer) {
   };
 }
 
+// 티시피 소켓에서 로컬과 원격 주소 정보를 읽어 온다.
 function socketAddresses(socket) {
   return {
     localAddress: socket.localAddress || null,
@@ -59,6 +65,7 @@ function socketAddresses(socket) {
   };
 }
 
+// 내부에서 바뀌는 소켓 정보를 안전한 상태 정보로 바꾼다.
 function serializeSocket(info) {
   return {
     id: info.id,
@@ -96,6 +103,7 @@ class TcpLabManager {
     this.streams = new Set();
   }
 
+  // 실험실 이벤트 하나를 메모리, 디스크, 서버 전송 이벤트에 함께 기록한다.
   emit(event) {
     const record = {
       id: makeId("lab", ++this.logSequence),
@@ -115,6 +123,7 @@ class TcpLabManager {
     return record;
   }
 
+  // 현재 실험실을 보고 있는 모든 브라우저에 서버 전송 이벤트 내용을 보낸다.
   broadcast(payload) {
     const chunk = `data: ${JSON.stringify(payload)}\n\n`;
 
@@ -123,10 +132,12 @@ class TcpLabManager {
     }
   }
 
+  // 소켓이나 서버 상태가 바뀐 뒤 최신 전체 상태 스냅샷을 방송한다.
   pushState() {
     this.broadcast({ type: "state", state: this.getState() });
   }
 
+  // 현재 실험실 상태 정보를 반환한다. 리스너 정보, 소켓 목록, 최근 로그가 들어 있다.
   getState() {
     const sockets = Array.from(this.socketEntries.values())
       .map((entry) => serializeSocket(entry.info))
@@ -148,6 +159,7 @@ class TcpLabManager {
     };
   }
 
+  // 브라우저가 실험실 변화를 실시간으로 받을 수 있도록 서버 전송 이벤트 스트림을 연다.
   registerStream(req, res) {
     res.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
@@ -163,6 +175,7 @@ class TcpLabManager {
     });
   }
 
+  // 실험실에서 티시피 소켓 하나를 추적할 때 쓰는 메타데이터 객체를 만든다.
   createSocketInfo(role, label) {
     return {
       id: makeId("sock", ++this.socketSequence),
@@ -184,6 +197,7 @@ class TcpLabManager {
     };
   }
 
+  // 실제 소켓의 최신 상태를 메타데이터 객체에 반영한다.
   syncSocketInfo(info, socket) {
     const addresses = socketAddresses(socket);
     info.localAddress = addresses.localAddress;
@@ -196,6 +210,7 @@ class TcpLabManager {
     info.readyState = socket.readyState || (socket.destroyed ? "closed" : "open");
   }
 
+  // 소켓 하나에 리스너를 붙여 카운터, 상태, 로그, 화면 상태를 함께 갱신하게 한다.
   attachSocket(socket, info) {
     const entry = {
       info,
@@ -275,6 +290,7 @@ class TcpLabManager {
     return entry;
   }
 
+  // 실험실 페이지에서 사용하는 실제 티시피 리스너를 시작한다.
   async startServer(options = {}) {
     if (this.server) {
       throw new Error("TCP 실험실 서버가 이미 실행 중이다.");
@@ -337,6 +353,7 @@ class TcpLabManager {
     return this.getState();
   }
 
+  // 리스너를 멈추고 아직 열려 있는 소켓도 가능하면 정상 종료를 시도한다.
   async stopServer() {
     if (!this.server) {
       return this.getState();
@@ -381,6 +398,7 @@ class TcpLabManager {
     return this.getState();
   }
 
+  // 관리형 클라이언트 소켓을 만들고 선택한 티시피 리스너에 연결한다.
   async connectManagedClient(options = {}) {
     const host = normalizeHost(options.host || this.host);
     const port = normalizePort(options.port, this.port);
@@ -441,6 +459,7 @@ class TcpLabManager {
     return this.getState();
   }
 
+  // 선택한 소켓 하나에 유티에프에잇 애플리케이션 데이터를 쓰고 그 기록을 남긴다.
   async send(socketId, text) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket || entry.socket.destroyed) {
@@ -478,6 +497,7 @@ class TcpLabManager {
     return this.getState();
   }
 
+  // 선택한 소켓 하나에 정상 종료 메서드를 호출해 티시피 종료를 시작한다.
   async end(socketId) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket || entry.socket.destroyed) {
@@ -501,6 +521,7 @@ class TcpLabManager {
     return this.getState();
   }
 
+  // 정상 종료를 기다리지 않고 선택한 소켓 하나를 즉시 파괴한다.
   async destroy(socketId) {
     const entry = this.socketEntries.get(socketId);
     if (!entry || !entry.socket || entry.socket.destroyed) {
@@ -523,6 +544,7 @@ class TcpLabManager {
     return this.getState();
   }
 
+  // 아직 조작 가능한 상태로 열려 있는 소켓만 골라 반환한다.
   openSocketOptions() {
     return Array.from(this.socketEntries.values())
       .filter((entry) => entry.socket && !entry.socket.destroyed)
@@ -530,6 +552,7 @@ class TcpLabManager {
   }
 }
 
+// 이 서버 파일에서 시작 시점에 실험실 매니저를 한 번 생성할 때 쓰는 생성 함수다.
 function createTcpLabManager() {
   return new TcpLabManager();
 }
